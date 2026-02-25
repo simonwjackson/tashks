@@ -57,7 +57,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] `generateNextRecurrence` — create new instance, handle replace vs accumulate — *needs:* Phase 4
 - [x] `processDueRecurrences(now)` — scan clock-driven tasks, generate due instances — *needs:* Phase 4
 - [x] RRULE parsing and interval extraction using `rrule` package — *needs:* Phase 1
-- [ ] Add tests for both trigger modes and both strategies
+- [x] Add tests for both trigger modes and both strategies
 
 ## Phase 6: Perspectives
 
