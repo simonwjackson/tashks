@@ -62,7 +62,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 ## Phase 6: Perspectives
 
 - [x] Perspective config loader (read `perspectives.yaml`) — *needs:* Phase 3
-- [ ] Relative date resolution (`+7d`, `today`) — *needs:* Phase 3
+- [x] Relative date resolution (`+7d`, `today`) — *needs:* Phase 3
 - [ ] Apply perspective filters and sorts to task list — *needs:* Phase 4
 - [ ] Add tests for perspective loading and application
 
