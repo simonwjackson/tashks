@@ -48,7 +48,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] `getTask`, `createTask`, `updateTask`, `deleteTask` — *needs:* Phase 2
 - [x] `setDailyHighlight` (clears others first) — *needs:* Phase 2
 - [x] `listStale(days)` — *needs:* Phase 3
-- [ ] Work log CRUD: `listWorkLog`, `createWorkLogEntry`, `updateWorkLogEntry`, `deleteWorkLogEntry` — *needs:* Phase 2
+- [x] Work log CRUD: `listWorkLog`, `createWorkLogEntry`, `updateWorkLogEntry`, `deleteWorkLogEntry` — *needs:* Phase 2
 - [ ] Add integration tests with temp directory and real YAML files
 
 ## Phase 5: Recurrence
