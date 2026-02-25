@@ -13,7 +13,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 ## Phase 1: Schema
 
 - [x] Define enums: TaskStatus, TaskArea, TaskUrgency, TaskEnergy
-- [ ] Define Subtask schema
+- [x] Define Subtask schema
 - [ ] Define Task schema with all fields from DESIGN.md §2.1 + §2.5 (including project, tags, due, recurrence fields)
 - [ ] Define TaskCreateInput (title required, defaults for everything else)
 - [ ] Define TaskPatch (all fields optional)
