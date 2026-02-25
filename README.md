@@ -62,6 +62,30 @@ $ tashks perspective morning
  {"id":"a1b2c3","title":"Write landing page","energy":"low"}]
 ```
 
+### Store tasks in any format
+
+tashks stores data via [proseql](https://github.com/simonwjackson/proseql), so you can use YAML, JSON, TOML, JSON5, JSONL, and more. The format is inferred from the file extension:
+
+```sh
+# YAML (default)
+$ tashks create --title "Buy groceries" --tasks-file ~/tasks.yaml
+
+# JSON
+$ tashks create --title "Buy groceries" --tasks-file ~/tasks.json
+
+# TOML
+$ tashks create --title "Buy groceries" --tasks-file ~/tasks.toml
+```
+
+### Migrate from per-file layout
+
+If upgrading from an older version of tashks that stored one file per task:
+
+```sh
+$ tashks migrate --from ~/.local/share/tashks --tasks-file ~/tasks.yaml --worklog-file ~/work-log.yaml
+{"migrated":{"tasks":42,"workLogEntries":108}}
+```
+
 ## Links
 
 - [Website](https://tashks.simonwjackson.io)

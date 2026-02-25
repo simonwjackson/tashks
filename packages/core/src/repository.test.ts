@@ -91,6 +91,8 @@ const makeRepositoryService = (
 	createWorkLogEntry: () => unexpectedCall(),
 	updateWorkLogEntry: () => unexpectedCall(),
 	deleteWorkLogEntry: () => unexpectedCall(),
+	importTask: () => unexpectedCall(),
+	importWorkLogEntry: () => unexpectedCall(),
 	...overrides,
 });
 
@@ -840,6 +842,8 @@ describe("TaskRepository service", () => {
 			"deleteWorkLogEntry",
 			"generateNextRecurrence",
 			"getTask",
+			"importTask",
+			"importWorkLogEntry",
 			"listStale",
 			"listTasks",
 			"listWorkLog",

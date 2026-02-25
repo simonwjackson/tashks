@@ -299,6 +299,21 @@
         </div>
         <div class="terminal-body"></div>
       </div>
+
+      <div class="terminal" data-script='[
+        {"type":"input","text":"tashks create --title \"Buy groceries\" --tasks-file ~/tasks.json"},
+        {"type":"output","text":"{\"id\":\"buy-groceries-x7k2m9\",\"title\":\"Buy groceries\",\"status\":\"active\"}"},
+        {"type":"pause"},
+        {"type":"input","text":"tashks create --title \"Fix bike\" --tasks-file ~/tasks.toml"},
+        {"type":"output","text":"{\"id\":\"fix-bike-p3n8q1\",\"title\":\"Fix bike\",\"status\":\"active\"}"}
+      ]'>
+        <div class="terminal-bar">
+          <span class="terminal-dot red"></span>
+          <span class="terminal-dot yellow"></span>
+          <span class="terminal-dot green"></span>
+        </div>
+        <div class="terminal-body"></div>
+      </div>
     </main>
 
     <footer>

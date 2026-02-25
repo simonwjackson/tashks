@@ -17,6 +17,10 @@
 		"./query": {
 			"types": "./dist/src/query.d.ts",
 			"import": "./dist/src/query.js"
+		},
+		"./proseql-repository": {
+			"types": "./dist/src/proseql-repository.d.ts",
+			"import": "./dist/src/proseql-repository.js"
 		}
 	},
 	"files": ["dist", "LICENSE"],
@@ -37,6 +41,7 @@
 	"dependencies": {
 		"effect": "^3",
 		"@effect/platform": "^0.77",
+		"@proseql/node": "^0.7.0",
 		"yaml": "^2",
 		"rrule": "^2"
 	}

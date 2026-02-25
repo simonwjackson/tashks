@@ -1,8 +1,4 @@
-import { randomBytes } from "node:crypto";
-import { spawnSync } from "node:child_process";
-import { constants as fsConstants } from "node:fs";
 import {
-	access,
 	mkdir,
 	readdir,
 	readFile,
@@ -15,7 +11,6 @@ import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { Frequency, RRule, rrulestr } from "rrule";
 import YAML from "yaml";
 import {
 	Task as TaskSchema,
@@ -37,28 +32,23 @@ import {
 	isStalerThan,
 	isUnblocked,
 } from "./query.js";
+import { generateTaskId } from "./id.js";
+import {
+	type HookRuntimeOptions,
+	runCreateHooks,
+	runModifyHooks,
+	runNonMutatingHooks,
+} from "./hooks.js";
+import {
+	buildCompletionRecurrenceTask,
+	buildNextClockRecurrenceTask,
+	isClockRecurrenceDue,
+} from "./recurrence.js";
 
-const idSuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-const idSuffixLength = 6;
-
-const slugifyTitle = (title: string): string => {
-	const slug = title
-		.toLowerCase()
-		.normalize("NFKD")
-		.replace(/[\u0300-\u036f]/g, "")
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "");
-
-	return slug.length > 0 ? slug : "task";
-};
-
-const randomIdSuffix = (): string => {
-	const random = randomBytes(idSuffixLength);
-	return Array.from(
-		random,
-		(value) => idSuffixAlphabet[value % idSuffixAlphabet.length],
-	).join("");
-};
+// Re-export for backwards compatibility
+export { discoverHooksForEvent } from "./hooks.js";
+export type { HookEvent, HookDiscoveryOptions } from "./hooks.js";
+export { generateTaskId } from "./id.js";
 
 const decodeTask = Schema.decodeUnknownSync(TaskSchema);
 const decodeTaskEither = Schema.decodeUnknownEither(TaskSchema);
@@ -375,245 +365,6 @@ const toWorkLogDate = (startedAt: string): Effect.Effect<string, string> =>
 			`TaskRepository failed to derive work log date: ${toErrorMessage(error)}`,
 	});
 
-interface CompletionRecurrenceInterval {
-	readonly frequency: "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
-	readonly interval: number;
-}
-
-const completionRecurrenceFrequencies = new Map<
-	Frequency,
-	CompletionRecurrenceInterval["frequency"]
->([
-	[Frequency.DAILY, "DAILY"],
-	[Frequency.WEEKLY, "WEEKLY"],
-	[Frequency.MONTHLY, "MONTHLY"],
-	[Frequency.YEARLY, "YEARLY"],
-]);
-
-const parseCompletionRecurrenceInterval = (
-	recurrence: string,
-): Effect.Effect<CompletionRecurrenceInterval, string> =>
-	Effect.try({
-		try: () => {
-			const parsedRule = rrulestr(recurrence, { forceset: false });
-			if (!(parsedRule instanceof RRule)) {
-				throw new Error(
-					"Unsupported completion recurrence: expected a single RRULE",
-				);
-			}
-
-			const frequency = completionRecurrenceFrequencies.get(
-				parsedRule.options.freq,
-			);
-			if (frequency === undefined) {
-				const frequencyLabel =
-					Frequency[parsedRule.options.freq] ?? String(parsedRule.options.freq);
-				throw new Error(
-					`Unsupported completion recurrence frequency: ${frequencyLabel}`,
-				);
-			}
-
-			const interval = parsedRule.options.interval;
-			if (!Number.isFinite(interval) || interval < 1) {
-				throw new Error(`Invalid recurrence interval: ${String(interval)}`);
-			}
-
-			return { frequency, interval } as const;
-		},
-		catch: (error) =>
-			`TaskRepository failed to parse recurrence interval: ${toErrorMessage(error)}`,
-	});
-
-const addRecurrenceInterval = (
-	date: Date,
-	recurrenceInterval: CompletionRecurrenceInterval,
-): Date => {
-	const next = new Date(date.getTime());
-
-	switch (recurrenceInterval.frequency) {
-		case "DAILY":
-			next.setUTCDate(next.getUTCDate() + recurrenceInterval.interval);
-			break;
-		case "WEEKLY":
-			next.setUTCDate(next.getUTCDate() + recurrenceInterval.interval * 7);
-			break;
-		case "MONTHLY":
-			next.setUTCMonth(next.getUTCMonth() + recurrenceInterval.interval);
-			break;
-		case "YEARLY":
-			next.setUTCFullYear(next.getUTCFullYear() + recurrenceInterval.interval);
-			break;
-	}
-
-	return next;
-};
-
-const shiftIsoDateByRecurrenceInterval = (
-	date: string,
-	recurrenceInterval: CompletionRecurrenceInterval,
-): Effect.Effect<string, string> =>
-	Effect.try({
-		try: () => {
-			const parsed = new Date(`${date}T00:00:00.000Z`);
-			if (Number.isNaN(parsed.getTime())) {
-				throw new Error(`Invalid ISO date: ${date}`);
-			}
-
-			return addRecurrenceInterval(parsed, recurrenceInterval)
-				.toISOString()
-				.slice(0, 10);
-		},
-		catch: (error) =>
-			`TaskRepository failed to shift ISO date: ${toErrorMessage(error)}`,
-	});
-
-const shiftIsoDateTimeToDateByRecurrenceInterval = (
-	dateTime: string,
-	recurrenceInterval: CompletionRecurrenceInterval,
-): Effect.Effect<string, string> =>
-	Effect.try({
-		try: () => {
-			const parsed = new Date(dateTime);
-			if (Number.isNaN(parsed.getTime())) {
-				throw new Error(`Invalid ISO datetime: ${dateTime}`);
-			}
-
-			return addRecurrenceInterval(parsed, recurrenceInterval)
-				.toISOString()
-				.slice(0, 10);
-		},
-		catch: (error) =>
-			`TaskRepository failed to shift ISO datetime: ${toErrorMessage(error)}`,
-	});
-
-const buildCompletionRecurrenceTask = (
-	completedTask: Task,
-	completedAt: string,
-): Effect.Effect<Task | null, string> => {
-	const recurrence = completedTask.recurrence;
-	if (
-		recurrence === null ||
-		completedTask.recurrence_trigger !== "completion"
-	) {
-		return Effect.succeed(null);
-	}
-
-	return Effect.gen(function* () {
-		const recurrenceInterval =
-			yield* parseCompletionRecurrenceInterval(recurrence);
-		const deferUntil = yield* shiftIsoDateTimeToDateByRecurrenceInterval(
-			completedAt,
-			recurrenceInterval,
-		);
-		const shiftedDue =
-			completedTask.due === null
-				? null
-				: yield* shiftIsoDateByRecurrenceInterval(
-						completedTask.due,
-						recurrenceInterval,
-					);
-		const completedDate = completedAt.slice(0, 10);
-
-		return decodeTask({
-			...completedTask,
-			id: generateTaskId(completedTask.title),
-			status: "active",
-			created: completedDate,
-			updated: completedDate,
-			due: shiftedDue,
-			actual_minutes: null,
-			completed_at: null,
-			last_surfaced: null,
-			defer_until: deferUntil,
-			nudge_count: 0,
-			recurrence_last_generated: completedAt,
-		});
-	});
-};
-
-const toIsoDateTime = (
-	value: Date,
-	label: string,
-): Effect.Effect<string, string> =>
-	Effect.try({
-		try: () => {
-			const timestamp = value.getTime();
-			if (Number.isNaN(timestamp)) {
-				throw new Error(`Invalid ${label} datetime`);
-			}
-			return value.toISOString();
-		},
-		catch: (error) =>
-			`TaskRepository failed to normalize ${label} datetime: ${toErrorMessage(error)}`,
-	});
-
-const parseIsoDateToUtcStart = (
-	value: string,
-	label: string,
-): Effect.Effect<Date, string> =>
-	Effect.try({
-		try: () => {
-			const parsed = new Date(`${value}T00:00:00.000Z`);
-			if (Number.isNaN(parsed.getTime())) {
-				throw new Error(`Invalid ISO date: ${value}`);
-			}
-			return parsed;
-		},
-		catch: (error) =>
-			`TaskRepository failed to parse ${label} date: ${toErrorMessage(error)}`,
-	});
-
-const parseIsoDateTime = (
-	value: string,
-	label: string,
-): Effect.Effect<Date, string> =>
-	Effect.try({
-		try: () => {
-			const parsed = new Date(value);
-			if (Number.isNaN(parsed.getTime())) {
-				throw new Error(`Invalid ISO datetime: ${value}`);
-			}
-			return parsed;
-		},
-		catch: (error) =>
-			`TaskRepository failed to parse ${label} datetime: ${toErrorMessage(error)}`,
-	});
-
-const isClockRecurrenceDue = (
-	task: Task,
-	now: Date,
-): Effect.Effect<boolean, string> =>
-	Effect.gen(function* () {
-		const recurrence = task.recurrence;
-		if (recurrence === null || task.recurrence_trigger !== "clock") {
-			return false;
-		}
-
-		const nowIso = yield* toIsoDateTime(now, "recurrence check");
-		const nowDate = new Date(nowIso);
-		const createdAt = yield* parseIsoDateToUtcStart(
-			task.created,
-			"task created",
-		);
-		const lastGeneratedAt =
-			task.recurrence_last_generated === null
-				? createdAt
-				: yield* parseIsoDateTime(
-						task.recurrence_last_generated,
-						"recurrence_last_generated",
-					);
-		const rule = yield* Effect.try({
-			try: () => rrulestr(recurrence, { dtstart: createdAt, forceset: false }),
-			catch: (error) =>
-				`TaskRepository failed to parse recurrence for ${task.id}: ${toErrorMessage(error)}`,
-		});
-		const nextOccurrence = rule.after(lastGeneratedAt, false);
-
-		return (
-			nextOccurrence !== null && nextOccurrence.getTime() <= nowDate.getTime()
-		);
-	});
-
 const generateNextClockRecurrence = (
 	dataDir: string,
 	existing: { readonly path: string; readonly task: Task },
@@ -623,62 +374,26 @@ const generateNextClockRecurrence = (
 	string
 > =>
 	Effect.gen(function* () {
-		const recurrence = existing.task.recurrence;
-		if (recurrence === null) {
-			return yield* Effect.fail(
-				`TaskRepository failed to generate next recurrence for ${existing.task.id}: task is not recurring`,
-			);
-		}
-
-		const generatedAtIso = yield* toIsoDateTime(
+		const result = yield* buildNextClockRecurrenceTask(
+			existing.task,
 			generatedAt,
-			"recurrence generation",
 		);
-		const generatedDate = generatedAtIso.slice(0, 10);
-		const nextTask = decodeTask({
-			...existing.task,
-			id: generateTaskId(existing.task.title),
-			status: "active",
-			created: generatedDate,
-			updated: generatedDate,
-			actual_minutes: null,
-			completed_at: null,
-			last_surfaced: null,
-			defer_until: null,
-			nudge_count: 0,
-			recurrence_last_generated: generatedAtIso,
-		});
 
-		let replacedId: string | null = null;
-
-		if (
-			existing.task.recurrence_strategy === "replace" &&
-			existing.task.status !== "done" &&
-			existing.task.status !== "dropped"
-		) {
-			const droppedTask = decodeTask({
-				...existing.task,
-				status: "dropped",
-				updated: generatedDate,
-				recurrence_last_generated: generatedAtIso,
-			});
-			yield* writeTaskToDisk(existing.path, droppedTask);
-			replacedId = existing.task.id;
-		}
-
-		if (existing.task.recurrence_strategy === "accumulate") {
-			const updatedCurrent = decodeTask({
-				...existing.task,
-				updated: generatedDate,
-				recurrence_last_generated: generatedAtIso,
-			});
-			yield* writeTaskToDisk(existing.path, updatedCurrent);
+		if (result.updatedCurrent !== null) {
+			yield* writeTaskToDisk(existing.path, result.updatedCurrent);
 		}
 
 		yield* ensureTasksDir(dataDir);
-		yield* writeTaskToDisk(taskFilePath(dataDir, nextTask.id), nextTask);
+		yield* writeTaskToDisk(
+			taskFilePath(dataDir, result.nextTask.id),
+			result.nextTask,
+		);
 
-		return { nextTask, replacedId } as const;
+		const replacedId = result.shouldReplaceCurrent
+			? existing.task.id
+			: null;
+
+		return { nextTask: result.nextTask, replacedId } as const;
 	});
 
 const byStartedAtDescThenId = (a: WorkLogEntry, b: WorkLogEntry): number => {
@@ -690,7 +405,7 @@ const byStartedAtDescThenId = (a: WorkLogEntry, b: WorkLogEntry): number => {
 	return a.id.localeCompare(b.id);
 };
 
-const applyListTaskFilters = (
+export const applyListTaskFilters = (
 	tasks: Array<Task>,
 	filters: ListTasksFilters = {},
 ): Array<Task> => {
@@ -766,253 +481,6 @@ export interface DeleteResult {
 	readonly deleted: true;
 }
 
-export type HookEvent = "create" | "modify" | "complete" | "delete";
-
-export interface HookDiscoveryOptions {
-	readonly hooksDir?: string;
-	readonly env?: NodeJS.ProcessEnv;
-}
-
-interface HookRuntimeOptions extends HookDiscoveryOptions {
-	readonly dataDir: string;
-}
-
-const defaultHooksDir = (env: NodeJS.ProcessEnv = process.env): string => {
-	const xdgConfigHome = env.XDG_CONFIG_HOME;
-	if (xdgConfigHome !== undefined && xdgConfigHome.length > 0) {
-		return join(xdgConfigHome, "tashks", "hooks");
-	}
-
-	const home = env.HOME;
-	return home !== undefined && home.length > 0
-		? join(home, ".config", "tashks", "hooks")
-		: join(".config", "tashks", "hooks");
-};
-
-const hookNamePattern = (event: HookEvent): RegExp =>
-	new RegExp(`^on-${event}(?:\\..+)?$`);
-
-const isHookCandidate = (event: HookEvent, fileName: string): boolean =>
-	hookNamePattern(event).test(fileName);
-
-const isExecutableFile = (path: string): Effect.Effect<boolean, string> =>
-	Effect.tryPromise({
-		try: async () => {
-			try {
-				await access(path, fsConstants.X_OK);
-				return true;
-			} catch (error) {
-				if (
-					error !== null &&
-					typeof error === "object" &&
-					"code" in error &&
-					(error.code === "EACCES" ||
-						error.code === "EPERM" ||
-						error.code === "ENOENT")
-				) {
-					return false;
-				}
-				throw error;
-			}
-		},
-		catch: (error) =>
-			`TaskRepository failed to inspect hook executable bit for ${path}: ${toErrorMessage(error)}`,
-	});
-
-export const discoverHooksForEvent = (
-	event: HookEvent,
-	options: HookDiscoveryOptions = {},
-): Effect.Effect<Array<string>, string> => {
-	const hooksDir = options.hooksDir ?? defaultHooksDir(options.env);
-
-	return Effect.gen(function* () {
-		const entries = yield* Effect.tryPromise({
-			try: () =>
-				readdir(hooksDir, { withFileTypes: true }).catch((error: unknown) => {
-					if (
-						error !== null &&
-						typeof error === "object" &&
-						"code" in error &&
-						error.code === "ENOENT"
-					) {
-						return [];
-					}
-					throw error;
-				}),
-			catch: (error) =>
-				`TaskRepository failed to read hooks directory ${hooksDir}: ${toErrorMessage(error)}`,
-		});
-
-		const candidatePaths = entries
-			.filter(
-				(entry) =>
-					(entry.isFile() || entry.isSymbolicLink()) &&
-					isHookCandidate(event, entry.name),
-			)
-			.map((entry) => join(hooksDir, entry.name))
-			.sort((a, b) => a.localeCompare(b));
-
-		const discovered: Array<string> = [];
-
-		for (const candidatePath of candidatePaths) {
-			const executable = yield* isExecutableFile(candidatePath);
-			if (executable) {
-				discovered.push(candidatePath);
-			}
-		}
-
-		return discovered;
-	});
-};
-
-type MutatingHookEvent = "create" | "modify";
-
-const parseTaskFromHookStdout = (
-	event: MutatingHookEvent,
-	hookPath: string,
-	stdout: string,
-): Effect.Effect<Task, string> =>
-	Effect.try({
-		try: () => decodeTask(JSON.parse(stdout)),
-		catch: (error) =>
-			`TaskRepository hook ${hookPath} returned invalid JSON for on-${event}: ${toErrorMessage(error)}`,
-	});
-
-const buildHookEnv = (
-	event: HookEvent,
-	taskId: string,
-	options: HookRuntimeOptions,
-): NodeJS.ProcessEnv => ({
-	...process.env,
-	...options.env,
-	TASHKS_EVENT: event,
-	TASHKS_ID: taskId,
-	TASHKS_DATA_DIR: options.dataDir,
-});
-
-const runHookExecutable = (
-	hookPath: string,
-	stdin: string,
-	env: NodeJS.ProcessEnv,
-): Effect.Effect<string, string> =>
-	Effect.gen(function* () {
-		const result = yield* Effect.try({
-			try: () =>
-				spawnSync(hookPath, [], {
-					input: stdin,
-					encoding: "utf8",
-					stdio: ["pipe", "pipe", "pipe"],
-					env,
-				}),
-			catch: (error) =>
-				`TaskRepository failed to execute hook ${hookPath}: ${toErrorMessage(error)}`,
-		});
-
-		if (result.error !== undefined) {
-			return yield* Effect.fail(
-				`TaskRepository failed to execute hook ${hookPath}: ${toErrorMessage(result.error)}`,
-			);
-		}
-
-		if (result.status !== 0) {
-			const stderr =
-				typeof result.stderr === "string" ? result.stderr.trim() : "";
-			const signal =
-				result.signal !== null ? `terminated by signal ${result.signal}` : null;
-			const status =
-				result.status === null
-					? "unknown"
-					: `exited with code ${result.status}`;
-			const details = stderr.length > 0 ? stderr : (signal ?? status);
-
-			return yield* Effect.fail(
-				`TaskRepository hook ${hookPath} failed: ${details}`,
-			);
-		}
-
-		return typeof result.stdout === "string" ? result.stdout : "";
-	});
-
-const runCreateHooks = (
-	task: Task,
-	options: HookRuntimeOptions,
-): Effect.Effect<Task, string> =>
-	Effect.gen(function* () {
-		const hooks = yield* discoverHooksForEvent("create", options);
-		let currentTask = task;
-
-		for (const hookPath of hooks) {
-			const stdout = yield* runHookExecutable(
-				hookPath,
-				JSON.stringify(currentTask),
-				buildHookEnv("create", currentTask.id, options),
-			);
-
-			if (stdout.trim().length === 0) {
-				continue;
-			}
-
-			currentTask = yield* parseTaskFromHookStdout("create", hookPath, stdout);
-		}
-
-		return currentTask;
-	});
-
-const runModifyHooks = (
-	oldTask: Task,
-	newTask: Task,
-	options: HookRuntimeOptions,
-): Effect.Effect<Task, string> =>
-	Effect.gen(function* () {
-		const hooks = yield* discoverHooksForEvent("modify", options);
-		let currentTask = newTask;
-
-		for (const hookPath of hooks) {
-			const stdout = yield* runHookExecutable(
-				hookPath,
-				JSON.stringify({ old: oldTask, new: currentTask }),
-				buildHookEnv("modify", currentTask.id, options),
-			);
-
-			if (stdout.trim().length === 0) {
-				continue;
-			}
-
-			const hookedTask = yield* parseTaskFromHookStdout(
-				"modify",
-				hookPath,
-				stdout,
-			);
-			if (hookedTask.id !== oldTask.id) {
-				return yield* Effect.fail(
-					`TaskRepository hook ${hookPath} failed: on-modify hooks cannot change task id`,
-				);
-			}
-			currentTask = hookedTask;
-		}
-
-		return currentTask;
-	});
-
-const runNonMutatingHooks = (
-	event: "complete" | "delete",
-	task: Task,
-	options: HookRuntimeOptions,
-): Effect.Effect<void, never> =>
-	Effect.gen(function* () {
-		const hooks = yield* discoverHooksForEvent(event, options).pipe(
-			Effect.catchAll(() => Effect.succeed([])),
-		);
-
-		for (const hookPath of hooks) {
-			yield* runHookExecutable(
-				hookPath,
-				JSON.stringify(task),
-				buildHookEnv(event, task.id, options),
-			).pipe(Effect.ignore);
-		}
-	});
-
 export interface TaskRepositoryService {
 	readonly listTasks: (
 		filters?: ListTasksFilters,
@@ -1047,6 +515,10 @@ export interface TaskRepositoryService {
 	readonly deleteWorkLogEntry: (
 		id: string,
 	) => Effect.Effect<DeleteResult, string>;
+	readonly importTask: (task: Task) => Effect.Effect<Task, string>;
+	readonly importWorkLogEntry: (
+		entry: WorkLogEntry,
+	) => Effect.Effect<WorkLogEntry, string>;
 }
 
 export class TaskRepository extends Context.Tag("TaskRepository")<
@@ -1251,6 +723,21 @@ const makeTaskRepositoryLive = (
 				yield* deleteWorkLogEntryFromDisk(existing.path, id);
 				return { deleted: true } as const;
 			}),
+		importTask: (task) =>
+			Effect.gen(function* () {
+				yield* ensureTasksDir(dataDir);
+				yield* writeTaskToDisk(taskFilePath(dataDir, task.id), task);
+				return task;
+			}),
+		importWorkLogEntry: (entry) =>
+			Effect.gen(function* () {
+				yield* ensureWorkLogDir(dataDir);
+				yield* writeWorkLogEntryToDisk(
+					workLogFilePath(dataDir, entry.id),
+					entry,
+				);
+				return entry;
+			}),
 	};
 };
 
@@ -1258,9 +745,6 @@ export const TaskRepositoryLive = (
 	options: TaskRepositoryLiveOptions = {},
 ): Layer.Layer<TaskRepository> =>
 	Layer.succeed(TaskRepository, makeTaskRepositoryLive(options));
-
-export const generateTaskId = (title: string): string =>
-	`${slugifyTitle(title)}-${randomIdSuffix()}`;
 
 export const todayIso = (): string => new Date().toISOString().slice(0, 10);
 

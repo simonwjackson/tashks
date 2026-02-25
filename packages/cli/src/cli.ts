@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { dirname, join } from "node:path";
 import * as Args from "@effect/cli/Args";
 import * as Command from "@effect/cli/Command";
 import * as Options from "@effect/cli/Options";
@@ -9,6 +10,7 @@ import {
 	type ListTasksFilters,
 	type TaskRepositoryService,
 } from "@tashks/core/repository";
+import { ProseqlRepositoryLive } from "@tashks/core/proseql-repository";
 import {
 	applyPerspectiveToTasks,
 	loadPerspectiveConfig,
@@ -18,11 +20,15 @@ import * as Option from "effect/Option";
 
 export interface GlobalCliOptionsInput {
 	readonly dataDir: Option.Option<string>;
+	readonly tasksFile: Option.Option<string>;
+	readonly worklogFile: Option.Option<string>;
 	readonly pretty: boolean;
 }
 
 export interface GlobalCliOptions {
 	readonly dataDir: string;
+	readonly tasksFile: string;
+	readonly worklogFile: string;
 	readonly pretty: boolean;
 }
 
@@ -179,6 +185,11 @@ export type DeleteWorkLogExecute<R, E> = (
 	id: string,
 ) => Effect.Effect<void, E, R>;
 
+export type MigrateExecute<R, E> = (
+	options: GlobalCliOptions,
+	fromDir: string,
+) => Effect.Effect<void, E, R>;
+
 export const defaultDataDir = (
 	env: NodeJS.ProcessEnv = process.env,
 ): string => {
@@ -191,10 +202,27 @@ export const defaultDataDir = (
 export const resolveGlobalCliOptions = (
 	options: GlobalCliOptionsInput,
 	env: NodeJS.ProcessEnv = process.env,
-): GlobalCliOptions => ({
-	dataDir: Option.getOrElse(options.dataDir, () => defaultDataDir(env)),
-	pretty: options.pretty,
-});
+): GlobalCliOptions => {
+	const dataDir = Option.getOrElse(options.dataDir, () => defaultDataDir(env));
+	const tasksFile = Option.getOrElse(options.tasksFile, () =>
+		join(dataDir, "tasks.yaml"),
+	);
+	const worklogFile = Option.getOrElse(options.worklogFile, () =>
+		join(dataDir, "work-log.yaml"),
+	);
+	return {
+		dataDir,
+		tasksFile,
+		worklogFile,
+		pretty: options.pretty,
+	};
+};
+
+const makeRepositoryLayer = (options: GlobalCliOptions) =>
+	ProseqlRepositoryLive({
+		tasksFile: options.tasksFile,
+		workLogFile: options.worklogFile,
+	});
 
 export const formatOutput = (value: unknown, pretty: boolean): string => {
 	const serialized = JSON.stringify(value, null, pretty ? 2 : undefined);
@@ -358,7 +386,17 @@ export const resolveUpdateWorkLogPatch = (
 };
 
 export const dataDirOption = Options.text("data-dir").pipe(
-	Options.withDescription("Override the tasks data directory"),
+	Options.withDescription("Override the tasks data directory (deprecated: use --tasks-file and --worklog-file)"),
+	Options.optional,
+);
+
+export const tasksFileOption = Options.text("tasks-file").pipe(
+	Options.withDescription("Path to tasks data file (e.g. tasks.yaml, tasks.md)"),
+	Options.optional,
+);
+
+export const worklogFileOption = Options.text("worklog-file").pipe(
+	Options.withDescription("Path to work-log data file (e.g. work-log.yaml, work-log.jsonl)"),
 	Options.optional,
 );
 
@@ -419,6 +457,8 @@ export const makeListCommand = <R, E>(execute: ListTasksExecute<R, E>) =>
 		"list",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			status: Options.choice("status", taskStatusChoices).pipe(
 				Options.withDescription("Filter by task status"),
@@ -466,6 +506,8 @@ export const makeListCommand = <R, E>(execute: ListTasksExecute<R, E>) =>
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				const filters = resolveListTaskFilters(options);
@@ -478,6 +520,8 @@ export const makeGetCommand = <R, E>(execute: GetTaskExecute<R, E>) =>
 		"get",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			id: Args.text({ name: "id" }),
 		},
@@ -485,6 +529,8 @@ export const makeGetCommand = <R, E>(execute: GetTaskExecute<R, E>) =>
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				yield* execute(globalOptions, options.id);
@@ -496,6 +542,8 @@ export const makeCreateCommand = <R, E>(execute: CreateTaskExecute<R, E>) =>
 		"create",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			title: Options.text("title").pipe(Options.withDescription("Task title")),
 			status: Options.choice("status", taskStatusChoices).pipe(
@@ -559,6 +607,8 @@ export const makeCreateCommand = <R, E>(execute: CreateTaskExecute<R, E>) =>
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				const input = resolveCreateTaskInput(options);
@@ -571,6 +621,8 @@ export const makeUpdateCommand = <R, E>(execute: UpdateTaskExecute<R, E>) =>
 		"update",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			id: Args.text({ name: "id" }),
 			title: Options.text("title").pipe(
@@ -636,6 +688,8 @@ export const makeUpdateCommand = <R, E>(execute: UpdateTaskExecute<R, E>) =>
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				const patch = resolveUpdateTaskPatch(options);
@@ -648,6 +702,8 @@ export const makeDeleteCommand = <R, E>(execute: DeleteTaskExecute<R, E>) =>
 		"delete",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			id: Args.text({ name: "id" }),
 		},
@@ -655,6 +711,8 @@ export const makeDeleteCommand = <R, E>(execute: DeleteTaskExecute<R, E>) =>
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				yield* execute(globalOptions, options.id);
@@ -668,6 +726,8 @@ export const makeHighlightCommand = <R, E>(
 		"highlight",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			id: Args.text({ name: "id" }),
 		},
@@ -675,6 +735,8 @@ export const makeHighlightCommand = <R, E>(
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				yield* execute(globalOptions, options.id);
@@ -686,6 +748,8 @@ export const makeCompleteCommand = <R, E>(execute: CompleteTaskExecute<R, E>) =>
 		"complete",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			id: Args.text({ name: "id" }),
 		},
@@ -693,6 +757,8 @@ export const makeCompleteCommand = <R, E>(execute: CompleteTaskExecute<R, E>) =>
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				yield* execute(globalOptions, options.id);
@@ -706,12 +772,16 @@ export const makeRecurrenceCheckCommand = <R, E>(
 		"recurrence-check",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 		},
 		(options) =>
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				yield* execute(globalOptions);
@@ -725,6 +795,8 @@ export const makePerspectiveCommand = <R, E>(
 		"perspective",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			name: Args.text({ name: "name" }),
 		},
@@ -732,6 +804,8 @@ export const makePerspectiveCommand = <R, E>(
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				yield* execute(globalOptions, options.name);
@@ -745,12 +819,16 @@ export const makePerspectivesCommand = <R, E>(
 		"perspectives",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 		},
 		(options) =>
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				yield* execute(globalOptions);
@@ -764,6 +842,8 @@ export const makeWorkLogListCommand = <R, E>(
 		"list",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			date: Options.text("date").pipe(
 				Options.withDescription("Filter entries by date (YYYY-MM-DD)"),
@@ -774,6 +854,8 @@ export const makeWorkLogListCommand = <R, E>(
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				const filters = resolveListWorkLogFilters(options);
@@ -788,6 +870,8 @@ export const makeWorkLogCreateCommand = <R, E>(
 		"create",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			taskId: Options.text("task-id").pipe(
 				Options.withDescription("Task id for the work log entry"),
@@ -804,6 +888,8 @@ export const makeWorkLogCreateCommand = <R, E>(
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				const input = resolveCreateWorkLogInput(options);
@@ -818,6 +904,8 @@ export const makeWorkLogUpdateCommand = <R, E>(
 		"update",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			id: Args.text({ name: "id" }),
 			taskId: Options.text("task-id").pipe(
@@ -837,6 +925,8 @@ export const makeWorkLogUpdateCommand = <R, E>(
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				const patch = resolveUpdateWorkLogPatch(options);
@@ -851,6 +941,8 @@ export const makeWorkLogDeleteCommand = <R, E>(
 		"delete",
 		{
 			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			id: Args.text({ name: "id" }),
 		},
@@ -858,11 +950,45 @@ export const makeWorkLogDeleteCommand = <R, E>(
 			Effect.gen(function* () {
 				const globalOptions = resolveGlobalCliOptions({
 					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
 				yield* execute(globalOptions, options.id);
 			}),
 	).pipe(Command.withDescription("Delete a work log entry by id"));
+
+export const makeMigrateCommand = <R, E>(
+	execute: MigrateExecute<R, E>,
+) =>
+	Command.make(
+		"migrate",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			from: Options.text("from").pipe(
+				Options.withDescription(
+					"Path to old data directory (containing tasks/ and work-log/ subdirectories)",
+				),
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.from);
+			}),
+	).pipe(
+		Command.withDescription(
+			"Migrate tasks and work-log entries from old per-file layout to proseql",
+		),
+	);
 
 export const makeWorkLogCommand = <R, E>(
 	execute: WorkLogExecute<R, E>,
@@ -873,9 +999,9 @@ export const makeWorkLogCommand = <R, E>(
 ) =>
 	Command.make(
 		"worklog",
-		{ dataDir: dataDirOption, pretty: prettyOption },
-		({ dataDir, pretty }) =>
-			execute(resolveGlobalCliOptions({ dataDir, pretty })),
+		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
+		({ dataDir, tasksFile, worklogFile, pretty }) =>
+			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
 	).pipe(
 		Command.withDescription("Manage work log entries"),
 		Command.withSubcommands([
@@ -903,15 +1029,16 @@ export const makeTasksCommand = <R, E>(
 	executeWorkLogCreate: CreateWorkLogExecute<R, E>,
 	executeWorkLogUpdate: UpdateWorkLogExecute<R, E>,
 	executeWorkLogDelete: DeleteWorkLogExecute<R, E>,
+	executeMigrate: MigrateExecute<R, E>,
 ) =>
 	Command.make(
 		"tasks",
-		{ dataDir: dataDirOption, pretty: prettyOption },
-		({ dataDir, pretty }) =>
-			execute(resolveGlobalCliOptions({ dataDir, pretty })),
+		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
+		({ dataDir, tasksFile, worklogFile, pretty }) =>
+			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
 	).pipe(
 		Command.withDescription(
-			"Manage tasks and work-log entries stored as YAML files.",
+			"Manage tasks and work-log entries via proseql (YAML, JSON, TOML, prose, and more).",
 		),
 		Command.withSubcommands([
 			makeListCommand(executeList),
@@ -931,6 +1058,7 @@ export const makeTasksCommand = <R, E>(
 				executeWorkLogUpdate,
 				executeWorkLogDelete,
 			),
+			makeMigrateCommand(executeMigrate),
 		]),
 	);
 
@@ -1010,6 +1138,11 @@ const noopWorkLogDeleteExecute = (
 	_id: string,
 ): Effect.Effect<void> => Effect.void;
 
+const noopMigrateExecute = (
+	_options: GlobalCliOptions,
+	_fromDir: string,
+): Effect.Effect<void> => Effect.void;
+
 const defaultListExecute: ListTasksExecute<never, string> = (
 	options,
 	filters,
@@ -1021,7 +1154,7 @@ const defaultListExecute: ListTasksExecute<never, string> = (
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(tasks, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultGetExecute: GetTaskExecute<never, string> = (options, id) =>
 	Effect.gen(function* () {
@@ -1031,7 +1164,7 @@ const defaultGetExecute: GetTaskExecute<never, string> = (options, id) =>
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultCreateExecute: CreateTaskExecute<never, string> = (
 	options,
@@ -1044,7 +1177,7 @@ const defaultCreateExecute: CreateTaskExecute<never, string> = (
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultUpdateExecute: UpdateTaskExecute<never, string> = (
 	options,
@@ -1058,7 +1191,7 @@ const defaultUpdateExecute: UpdateTaskExecute<never, string> = (
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultDeleteExecute: DeleteTaskExecute<never, string> = (options, id) =>
 	Effect.gen(function* () {
@@ -1068,7 +1201,7 @@ const defaultDeleteExecute: DeleteTaskExecute<never, string> = (options, id) =>
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(result, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultHighlightExecute: HighlightTaskExecute<never, string> = (
 	options,
@@ -1081,7 +1214,7 @@ const defaultHighlightExecute: HighlightTaskExecute<never, string> = (
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultCompleteExecute: CompleteTaskExecute<never, string> = (
 	options,
@@ -1094,7 +1227,7 @@ const defaultCompleteExecute: CompleteTaskExecute<never, string> = (
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultRecurrenceCheckExecute: RecurrenceCheckExecute<never, string> = (
 	options,
@@ -1106,7 +1239,7 @@ const defaultRecurrenceCheckExecute: RecurrenceCheckExecute<never, string> = (
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(result, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultPerspectiveExecute: PerspectiveExecute<never, string> = (
 	options,
@@ -1127,7 +1260,7 @@ const defaultPerspectiveExecute: PerspectiveExecute<never, string> = (
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(projected, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultPerspectivesExecute: PerspectivesExecute<never, string> = (
 	options,
@@ -1152,7 +1285,7 @@ const defaultWorkLogListExecute: ListWorkLogExecute<never, string> = (
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(entries, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultWorkLogCreateExecute: CreateWorkLogExecute<never, string> = (
 	options,
@@ -1165,7 +1298,7 @@ const defaultWorkLogCreateExecute: CreateWorkLogExecute<never, string> = (
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(entry, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultWorkLogUpdateExecute: UpdateWorkLogExecute<never, string> = (
 	options,
@@ -1179,7 +1312,7 @@ const defaultWorkLogUpdateExecute: UpdateWorkLogExecute<never, string> = (
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(entry, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 const defaultWorkLogDeleteExecute: DeleteWorkLogExecute<never, string> = (
 	options,
@@ -1192,7 +1325,46 @@ const defaultWorkLogDeleteExecute: DeleteWorkLogExecute<never, string> = (
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(result, options.pretty)}\n`);
 		});
-	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultMigrateExecute: MigrateExecute<never, string> = (
+	options,
+	fromDir,
+) =>
+	Effect.gen(function* () {
+		const oldLayer = TaskRepositoryLive({ dataDir: fromDir });
+		const newLayer = makeRepositoryLayer(options);
+
+		const oldRepo = yield* Effect.provide(
+			TaskRepository,
+			oldLayer,
+		);
+		const newRepo = yield* Effect.provide(
+			TaskRepository,
+			newLayer,
+		);
+
+		const tasks = yield* oldRepo.listTasks();
+		const workLog = yield* oldRepo.listWorkLog();
+
+		let taskCount = 0;
+		for (const task of tasks) {
+			yield* newRepo.importTask(task);
+			taskCount++;
+		}
+
+		let workLogCount = 0;
+		for (const entry of workLog) {
+			yield* newRepo.importWorkLogEntry(entry);
+			workLogCount++;
+		}
+
+		yield* Effect.sync(() => {
+			process.stdout.write(
+				`${formatOutput({ migrated: { tasks: taskCount, workLogEntries: workLogCount } }, options.pretty)}\n`,
+			);
+		});
+	});
 
 export const makeCli = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
@@ -1253,6 +1425,10 @@ export const makeCli = <R, E>(
 		R,
 		E
 	> = noopWorkLogDeleteExecute as DeleteWorkLogExecute<R, E>,
+	executeMigrate: MigrateExecute<R, E> = noopMigrateExecute as MigrateExecute<
+		R,
+		E
+	>,
 ) =>
 	Command.run(
 		makeTasksCommand(
@@ -1272,6 +1448,7 @@ export const makeCli = <R, E>(
 			executeWorkLogCreate,
 			executeWorkLogUpdate,
 			executeWorkLogDelete,
+			executeMigrate,
 		),
 		{
 			name: "Tashks CLI",
@@ -1296,6 +1473,7 @@ export const cli = makeCli(
 	defaultWorkLogCreateExecute,
 	defaultWorkLogUpdateExecute,
 	defaultWorkLogDeleteExecute,
+	defaultMigrateExecute,
 );
 
 export const runCli = (argv: ReadonlyArray<string> = process.argv) => cli(argv);

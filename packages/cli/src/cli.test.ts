@@ -68,6 +68,8 @@ describe("cli global options", () => {
 		const resolved = resolveGlobalCliOptions(
 			{
 				dataDir: Option.some("/tmp/tasks-data"),
+				tasksFile: Option.none(),
+				worklogFile: Option.none(),
 				pretty: true,
 			},
 			{ HOME: "/home/simon" },
@@ -75,6 +77,8 @@ describe("cli global options", () => {
 
 		expect(resolved).toEqual({
 			dataDir: "/tmp/tasks-data",
+			tasksFile: "/tmp/tasks-data/tasks.yaml",
+			worklogFile: "/tmp/tasks-data/work-log.yaml",
 			pretty: true,
 		});
 	});
@@ -83,6 +87,8 @@ describe("cli global options", () => {
 		const resolved = resolveGlobalCliOptions(
 			{
 				dataDir: Option.none(),
+				tasksFile: Option.none(),
+				worklogFile: Option.none(),
 				pretty: false,
 			},
 			{ HOME: "/home/simon" },
@@ -90,6 +96,8 @@ describe("cli global options", () => {
 
 		expect(resolved).toEqual({
 			dataDir: "/home/simon/.local/share/tashks",
+			tasksFile: "/home/simon/.local/share/tashks/tasks.yaml",
+			worklogFile: "/home/simon/.local/share/tashks/work-log.yaml",
 			pretty: false,
 		});
 	});
@@ -361,6 +369,8 @@ describe("cli parsing", () => {
 		expect(captured).toEqual([
 			{
 				dataDir: "/tmp/tasks-data",
+				tasksFile: "/tmp/tasks-data/tasks.yaml",
+				worklogFile: "/tmp/tasks-data/work-log.yaml",
 				pretty: true,
 			},
 		]);
@@ -409,6 +419,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				filters: {
@@ -455,6 +467,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				id: "revive-unzen",
@@ -518,6 +532,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				input: {
@@ -598,6 +614,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				id: "revive-unzen",
@@ -653,6 +671,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				id: "revive-unzen",
@@ -694,6 +714,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				id: "revive-unzen",
@@ -736,6 +758,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				id: "revive-unzen",
@@ -774,6 +798,8 @@ describe("cli parsing", () => {
 		expect(captured).toEqual([
 			{
 				dataDir: "/tmp/tasks-data",
+				tasksFile: "/tmp/tasks-data/tasks.yaml",
+				worklogFile: "/tmp/tasks-data/work-log.yaml",
 				pretty: true,
 			},
 		]);
@@ -816,6 +842,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				name: "quick-wins",
@@ -856,6 +884,8 @@ describe("cli parsing", () => {
 		expect(captured).toEqual([
 			{
 				dataDir: "/tmp/tasks-data",
+				tasksFile: "/tmp/tasks-data/tasks.yaml",
+				worklogFile: "/tmp/tasks-data/work-log.yaml",
 				pretty: true,
 			},
 		]);
@@ -903,6 +933,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				filters: {
@@ -959,6 +991,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				input: {
@@ -1020,6 +1054,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				id: "revive-unzen-20260305T090000Z",
@@ -1076,6 +1112,8 @@ describe("cli parsing", () => {
 			{
 				options: {
 					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
 					pretty: true,
 				},
 				id: "revive-unzen-20260305T090000Z",
