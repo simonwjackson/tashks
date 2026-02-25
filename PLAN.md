@@ -85,6 +85,6 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] `tasks highlight <id>` — *needs:* Phase 4
 - [x] `tasks complete <id>` — *needs:* Phase 5
 - [x] `tasks perspective <name>` and `tasks perspectives` — *needs:* Phase 6
-- [ ] `tasks recurrence-check` — *needs:* Phase 5
+- [x] `tasks recurrence-check` — *needs:* Phase 5
 - [ ] Worklog subcommands: list, create, update, delete — *needs:* Phase 4
 - [ ] CLI smoke tests (round-trip create/get/list/update/delete)
