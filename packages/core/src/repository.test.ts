@@ -139,6 +139,24 @@ const writeTaskFiles = async (
 	);
 };
 
+const writeWorkLogFiles = async (
+	dataDir: string,
+	entries: ReadonlyArray<WorkLogEntry>,
+): Promise<void> => {
+	const workLogDir = join(dataDir, "work-log");
+	await mkdir(workLogDir, { recursive: true });
+
+	await Promise.all(
+		entries.map((entry) =>
+			writeFile(
+				join(workLogDir, `${entry.id}.yaml`),
+				YAML.stringify(entry),
+				"utf8",
+			),
+		),
+	);
+};
+
 describe("repository pure helpers", () => {
 	it("generateTaskId slugifies title and appends a six character suffix", () => {
 		const id = generateTaskId(" Repair   ARRAY!!! ");
@@ -665,6 +683,125 @@ describe("TaskRepository service", () => {
 					"TaskRepository failed to read task revive-unzen: Task not found: revive-unzen",
 				);
 			}
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("createWorkLogEntry persists a derived entry from create input", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-worklog-create-"));
+		try {
+			const created = await runRepository(dataDir, (repository) =>
+				repository.createWorkLogEntry({
+					task_id: "revive-unzen",
+					started_at: "2026-02-20T09:00:00Z",
+				}),
+			);
+
+			expect(created).toEqual({
+				id: "revive-unzen-20260220T0900",
+				task_id: "revive-unzen",
+				started_at: "2026-02-20T09:00:00Z",
+				ended_at: null,
+				date: "2026-02-20",
+			});
+
+			const storedSource = await readFile(
+				join(dataDir, "work-log", `${created.id}.yaml`),
+				"utf8",
+			);
+			expect(YAML.parse(storedSource)).toEqual(created);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("listWorkLog applies date filtering and sorts by started_at descending", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-worklog-list-"));
+		try {
+			const entries: Array<WorkLogEntry> = [
+				{
+					...baseWorkLogEntry(),
+					id: "revive-unzen-20260220T0900",
+					started_at: "2026-02-20T09:00:00Z",
+					date: "2026-02-20",
+				},
+				{
+					...baseWorkLogEntry(),
+					id: "revive-unzen-20260221T0800",
+					started_at: "2026-02-21T08:00:00Z",
+					date: "2026-02-21",
+				},
+				{
+					...baseWorkLogEntry(),
+					id: "revive-unzen-20260221T0900",
+					started_at: "2026-02-21T09:00:00Z",
+					date: "2026-02-21",
+				},
+			];
+			await writeWorkLogFiles(dataDir, entries);
+
+			const allEntries = await runRepository(dataDir, (repository) =>
+				repository.listWorkLog(),
+			);
+			expect(allEntries.map((entry) => entry.id)).toEqual([
+				"revive-unzen-20260221T0900",
+				"revive-unzen-20260221T0800",
+				"revive-unzen-20260220T0900",
+			]);
+
+			const filteredEntries = await runRepository(dataDir, (repository) =>
+				repository.listWorkLog({ date: "2026-02-21" }),
+			);
+			expect(filteredEntries.map((entry) => entry.id)).toEqual([
+				"revive-unzen-20260221T0900",
+				"revive-unzen-20260221T0800",
+			]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("updateWorkLogEntry merges and persists changes", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-worklog-update-"));
+		try {
+			await writeWorkLogFiles(dataDir, [baseWorkLogEntry()]);
+
+			const updated = await runRepository(dataDir, (repository) =>
+				repository.updateWorkLogEntry("revive-unzen-20260220T0900", {
+					ended_at: null,
+					date: "2026-02-21",
+				}),
+			);
+			expect(updated).toEqual({
+				...baseWorkLogEntry(),
+				ended_at: null,
+				date: "2026-02-21",
+			});
+
+			const listed = await runRepository(dataDir, (repository) =>
+				repository.listWorkLog(),
+			);
+			expect(listed).toEqual([updated]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("deleteWorkLogEntry removes the entry file and returns deleted", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-worklog-delete-"));
+		try {
+			await writeWorkLogFiles(dataDir, [baseWorkLogEntry()]);
+
+			const deleted = await runRepository(dataDir, (repository) =>
+				repository.deleteWorkLogEntry("revive-unzen-20260220T0900"),
+			);
+			expect(deleted).toEqual({ deleted: true });
+
+			const entries = await runRepository(dataDir, (repository) =>
+				repository.listWorkLog(),
+			);
+			expect(entries).toEqual([]);
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}

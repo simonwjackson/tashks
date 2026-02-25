@@ -11,6 +11,7 @@ import {
 	Task as TaskSchema,
 	TaskCreateInput as TaskCreateInputSchema,
 	TaskPatch as TaskPatchSchema,
+	WorkLogCreateInput as WorkLogCreateInputSchema,
 	WorkLogEntry as WorkLogEntrySchema,
 	WorkLogPatch as WorkLogPatchSchema,
 	type Task,
@@ -53,6 +54,9 @@ const decodeTask = Schema.decodeUnknownSync(TaskSchema);
 const decodeTaskEither = Schema.decodeUnknownEither(TaskSchema);
 const decodeTaskCreateInput = Schema.decodeUnknownSync(TaskCreateInputSchema);
 const decodeTaskPatch = Schema.decodeUnknownSync(TaskPatchSchema);
+const decodeWorkLogCreateInput = Schema.decodeUnknownSync(
+	WorkLogCreateInputSchema,
+);
 const decodeWorkLogEntry = Schema.decodeUnknownSync(WorkLogEntrySchema);
 const decodeWorkLogEntryEither = Schema.decodeUnknownEither(WorkLogEntrySchema);
 const decodeWorkLogPatch = Schema.decodeUnknownSync(WorkLogPatchSchema);
@@ -66,6 +70,12 @@ const taskFilePath = (dataDir: string, id: string): string =>
 const legacyTaskFilePath = (dataDir: string, id: string): string =>
 	join(dataDir, "tasks", `${id}.yml`);
 
+const workLogFilePath = (dataDir: string, id: string): string =>
+	join(dataDir, "work-log", `${id}.yaml`);
+
+const legacyWorkLogFilePath = (dataDir: string, id: string): string =>
+	join(dataDir, "work-log", `${id}.yml`);
+
 const dailyHighlightFilePath = (dataDir: string): string =>
 	join(dataDir, "daily-highlight.yaml");
 
@@ -74,6 +84,13 @@ const ensureTasksDir = (dataDir: string): Effect.Effect<void, string> =>
 		try: () => mkdir(join(dataDir, "tasks"), { recursive: true }),
 		catch: (error) =>
 			`TaskRepository failed to create tasks directory: ${toErrorMessage(error)}`,
+	});
+
+const ensureWorkLogDir = (dataDir: string): Effect.Effect<void, string> =>
+	Effect.tryPromise({
+		try: () => mkdir(join(dataDir, "work-log"), { recursive: true }),
+		catch: (error) =>
+			`TaskRepository failed to create work-log directory: ${toErrorMessage(error)}`,
 	});
 
 const writeDailyHighlightToDisk = (
@@ -205,6 +222,158 @@ const readTasksFromDisk = (
 			`TaskRepository.listTasks failed to read task files: ${toErrorMessage(error)}`,
 	});
 
+const readWorkLogEntryByIdFromDisk = (
+	dataDir: string,
+	id: string,
+): Effect.Effect<
+	{ readonly path: string; readonly entry: WorkLogEntry },
+	string
+> =>
+	Effect.tryPromise({
+		try: async () => {
+			const candidatePaths = [
+				workLogFilePath(dataDir, id),
+				legacyWorkLogFilePath(dataDir, id),
+			];
+
+			for (const path of candidatePaths) {
+				const source = await readFile(path, "utf8").catch((error: unknown) => {
+					if (
+						error !== null &&
+						typeof error === "object" &&
+						"code" in error &&
+						error.code === "ENOENT"
+					) {
+						return null;
+					}
+					throw error;
+				});
+
+				if (source === null) {
+					continue;
+				}
+
+				const parsed = YAML.parse(source);
+				const entry = parseWorkLogRecord(parsed);
+				if (entry === null) {
+					throw new Error(`Invalid work log record in ${path}`);
+				}
+
+				return { path, entry };
+			}
+
+			throw new Error(`Work log entry not found: ${id}`);
+		},
+		catch: (error) =>
+			`TaskRepository failed to read work log entry ${id}: ${toErrorMessage(error)}`,
+	});
+
+const readWorkLogEntriesFromDisk = (
+	dataDir: string,
+): Effect.Effect<Array<WorkLogEntry>, string> =>
+	Effect.tryPromise({
+		try: async () => {
+			const workLogDir = join(dataDir, "work-log");
+			const entries = await readdir(workLogDir, { withFileTypes: true }).catch(
+				(error: unknown) => {
+					if (
+						error !== null &&
+						typeof error === "object" &&
+						"code" in error &&
+						error.code === "ENOENT"
+					) {
+						return [];
+					}
+					throw error;
+				},
+			);
+
+			const workLogFiles = entries
+				.filter(
+					(entry) =>
+						entry.isFile() &&
+						(entry.name.endsWith(".yaml") || entry.name.endsWith(".yml")),
+				)
+				.map((entry) => entry.name);
+
+			const workLogEntries: Array<WorkLogEntry> = [];
+
+			for (const fileName of workLogFiles) {
+				const filePath = join(workLogDir, fileName);
+				const source = await readFile(filePath, "utf8");
+				const parsed = YAML.parse(source);
+				const workLogEntry = parseWorkLogRecord(parsed);
+
+				if (workLogEntry === null) {
+					throw new Error(`Invalid work log record in ${filePath}`);
+				}
+
+				workLogEntries.push(workLogEntry);
+			}
+
+			return workLogEntries;
+		},
+		catch: (error) =>
+			`TaskRepository.listWorkLog failed to read work log files: ${toErrorMessage(error)}`,
+	});
+
+const writeWorkLogEntryToDisk = (
+	path: string,
+	entry: WorkLogEntry,
+): Effect.Effect<void, string> =>
+	Effect.tryPromise({
+		try: () => writeFile(path, YAML.stringify(entry), "utf8"),
+		catch: (error) =>
+			`TaskRepository failed to write work log entry ${entry.id}: ${toErrorMessage(error)}`,
+	});
+
+const deleteWorkLogEntryFromDisk = (
+	path: string,
+	id: string,
+): Effect.Effect<void, string> =>
+	Effect.tryPromise({
+		try: () => rm(path),
+		catch: (error) =>
+			`TaskRepository failed to delete work log entry ${id}: ${toErrorMessage(error)}`,
+	});
+
+const toWorkLogTimestamp = (startedAt: string): Effect.Effect<string, string> =>
+	Effect.try({
+		try: () => {
+			const parsed = new Date(startedAt);
+			if (Number.isNaN(parsed.getTime())) {
+				throw new Error(`Invalid started_at: ${startedAt}`);
+			}
+
+			const iso = parsed.toISOString();
+			return `${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}T${iso.slice(11, 13)}${iso.slice(14, 16)}`;
+		},
+		catch: (error) =>
+			`TaskRepository failed to derive work log timestamp: ${toErrorMessage(error)}`,
+	});
+
+const toWorkLogDate = (startedAt: string): Effect.Effect<string, string> =>
+	Effect.try({
+		try: () => {
+			const parsed = new Date(startedAt);
+			if (Number.isNaN(parsed.getTime())) {
+				throw new Error(`Invalid started_at: ${startedAt}`);
+			}
+			return parsed.toISOString().slice(0, 10);
+		},
+		catch: (error) =>
+			`TaskRepository failed to derive work log date: ${toErrorMessage(error)}`,
+	});
+
+const byStartedAtDescThenId = (a: WorkLogEntry, b: WorkLogEntry): number => {
+	const byStartedAtDesc = b.started_at.localeCompare(a.started_at);
+	if (byStartedAtDesc !== 0) {
+		return byStartedAtDesc;
+	}
+
+	return a.id.localeCompare(b.id);
+};
+
 const applyListTaskFilters = (
 	tasks: Array<Task>,
 	filters: ListTasksFilters = {},
@@ -325,14 +494,6 @@ const defaultDataDir = (): string => {
 		: ".local/share/tasks";
 };
 
-const notImplemented = <A>(
-	operation: string,
-	dataDir: string,
-): Effect.Effect<A, string> =>
-	Effect.fail(
-		`TaskRepository.${operation} is not implemented yet (data dir: ${dataDir})`,
-	);
-
 const makeTaskRepositoryLive = (
 	options: TaskRepositoryLiveOptions = {},
 ): TaskRepositoryService => {
@@ -379,10 +540,48 @@ const makeTaskRepositoryLive = (
 					.filter((task) => task.status === "active" && stalePredicate(task))
 					.sort(byUpdatedDescThenTitle);
 			}),
-		listWorkLog: () => notImplemented("listWorkLog", dataDir),
-		createWorkLogEntry: () => notImplemented("createWorkLogEntry", dataDir),
-		updateWorkLogEntry: () => notImplemented("updateWorkLogEntry", dataDir),
-		deleteWorkLogEntry: () => notImplemented("deleteWorkLogEntry", dataDir),
+		listWorkLog: (filters) =>
+			Effect.map(readWorkLogEntriesFromDisk(dataDir), (entries) =>
+				entries
+					.filter((entry) =>
+						filters?.date !== undefined ? entry.date === filters.date : true,
+					)
+					.sort(byStartedAtDescThenId),
+			),
+		createWorkLogEntry: (input) =>
+			Effect.gen(function* () {
+				yield* ensureWorkLogDir(dataDir);
+				const normalizedInput = decodeWorkLogCreateInput(input);
+				const timestamp = yield* toWorkLogTimestamp(normalizedInput.started_at);
+				const date = yield* toWorkLogDate(normalizedInput.started_at);
+
+				const created = decodeWorkLogEntry({
+					id: `${normalizedInput.task_id}-${timestamp}`,
+					task_id: normalizedInput.task_id,
+					started_at: normalizedInput.started_at,
+					ended_at: normalizedInput.ended_at,
+					date,
+				});
+
+				yield* writeWorkLogEntryToDisk(
+					workLogFilePath(dataDir, created.id),
+					created,
+				);
+				return created;
+			}),
+		updateWorkLogEntry: (id, patch) =>
+			Effect.gen(function* () {
+				const existing = yield* readWorkLogEntryByIdFromDisk(dataDir, id);
+				const updated = applyWorkLogPatch(existing.entry, patch);
+				yield* writeWorkLogEntryToDisk(existing.path, updated);
+				return updated;
+			}),
+		deleteWorkLogEntry: (id) =>
+			Effect.gen(function* () {
+				const existing = yield* readWorkLogEntryByIdFromDisk(dataDir, id);
+				yield* deleteWorkLogEntryFromDisk(existing.path, id);
+				return { deleted: true } as const;
+			}),
 	};
 };
 
