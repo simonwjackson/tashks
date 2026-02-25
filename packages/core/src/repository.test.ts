@@ -944,6 +944,46 @@ process.stdout.write(JSON.stringify(task));
 		}
 	});
 
+	it("createTask hooks receive TASKS_EVENT, TASKS_ID, and TASKS_DATA_DIR", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-create-hook-env-"));
+		const hooksDir = join(dataDir, "hooks");
+		const markerPath = join(dataDir, "on-create-env.json");
+		try {
+			await writeExecutableHook(
+				hooksDir,
+				"on-create",
+				`#!/usr/bin/env node
+const fs = require("node:fs");
+const task = JSON.parse(fs.readFileSync(0, "utf8"));
+const payload = {
+  event: process.env.TASKS_EVENT ?? null,
+  id: process.env.TASKS_ID ?? null,
+  dataDir: process.env.TASKS_DATA_DIR ?? null,
+};
+fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(payload), "utf8");
+process.stdout.write(JSON.stringify(task));
+`,
+			);
+
+			const created = await runRepositoryWithOptions(
+				{ dataDir, hooksDir },
+				(repository) =>
+					repository.createTask({
+						title: "Capture outage notes",
+					}),
+			);
+
+			const payload = JSON.parse(await readFile(markerPath, "utf8"));
+			expect(payload).toEqual({
+				event: "create",
+				id: created.id,
+				dataDir,
+			});
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
 	it("updateTask applies on-modify mutating hooks using old and new task payload", async () => {
 		const dataDir = await mkdtemp(join(tmpdir(), "tasks-update-hook-"));
 		const hooksDir = join(dataDir, "hooks");
@@ -972,6 +1012,45 @@ process.stdout.write(JSON.stringify(payload.new));
 			expect(updated.title).toBe("Repair array");
 			expect(updated.context).toBe("Revive unzen server -> Repair array");
 			expect(updated.tags).toEqual(["hardware", "weekend", "modified-hook"]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("updateTask hooks receive TASKS_EVENT, TASKS_ID, and TASKS_DATA_DIR", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-update-hook-env-"));
+		const hooksDir = join(dataDir, "hooks");
+		const markerPath = join(dataDir, "on-modify-env.json");
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+			await writeExecutableHook(
+				hooksDir,
+				"on-modify",
+				`#!/usr/bin/env node
+const fs = require("node:fs");
+const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+const envPayload = {
+  event: process.env.TASKS_EVENT ?? null,
+  id: process.env.TASKS_ID ?? null,
+  dataDir: process.env.TASKS_DATA_DIR ?? null,
+};
+fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(envPayload), "utf8");
+process.stdout.write(JSON.stringify(payload.new));
+`,
+			);
+
+			await runRepositoryWithOptions({ dataDir, hooksDir }, (repository) =>
+				repository.updateTask("revive-unzen", {
+					title: "Repair array",
+				}),
+			);
+
+			const payload = JSON.parse(await readFile(markerPath, "utf8"));
+			expect(payload).toEqual({
+				event: "modify",
+				id: "revive-unzen",
+				dataDir,
+			});
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}
@@ -1074,6 +1153,44 @@ fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(task), "utf8");
 			expect(payload.id).toBe("revive-unzen");
 			expect(payload.status).toBe("done");
 			expect(payload.completed_at).toBe(completed.completed_at);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("completeTask hooks receive TASKS_EVENT, TASKS_ID, and TASKS_DATA_DIR", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-complete-hook-env-"));
+		const hooksDir = join(dataDir, "hooks");
+		const markerPath = join(dataDir, "on-complete-env.json");
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+			await writeExecutableHook(
+				hooksDir,
+				"on-complete",
+				`#!/usr/bin/env node
+const fs = require("node:fs");
+const task = JSON.parse(fs.readFileSync(0, "utf8"));
+const payload = {
+  event: process.env.TASKS_EVENT ?? null,
+  id: process.env.TASKS_ID ?? null,
+  dataDir: process.env.TASKS_DATA_DIR ?? null,
+  taskId: task.id,
+};
+fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(payload), "utf8");
+`,
+			);
+
+			await runRepositoryWithOptions({ dataDir, hooksDir }, (repository) =>
+				repository.completeTask("revive-unzen"),
+			);
+
+			const payload = JSON.parse(await readFile(markerPath, "utf8"));
+			expect(payload).toEqual({
+				event: "complete",
+				id: "revive-unzen",
+				dataDir,
+				taskId: "revive-unzen",
+			});
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}
@@ -1580,6 +1697,44 @@ fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(task), "utf8");
 			const payload = JSON.parse(await readFile(markerPath, "utf8"));
 			expect(payload.id).toBe("revive-unzen");
 			expect(payload.title).toBe("Revive unzen server");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("deleteTask hooks receive TASKS_EVENT, TASKS_ID, and TASKS_DATA_DIR", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-delete-hook-env-"));
+		const hooksDir = join(dataDir, "hooks");
+		const markerPath = join(dataDir, "on-delete-env.json");
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+			await writeExecutableHook(
+				hooksDir,
+				"on-delete",
+				`#!/usr/bin/env node
+const fs = require("node:fs");
+const task = JSON.parse(fs.readFileSync(0, "utf8"));
+const payload = {
+  event: process.env.TASKS_EVENT ?? null,
+  id: process.env.TASKS_ID ?? null,
+  dataDir: process.env.TASKS_DATA_DIR ?? null,
+  taskId: task.id,
+};
+fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(payload), "utf8");
+`,
+			);
+
+			await runRepositoryWithOptions({ dataDir, hooksDir }, (repository) =>
+				repository.deleteTask("revive-unzen"),
+			);
+
+			const payload = JSON.parse(await readFile(markerPath, "utf8"));
+			expect(payload).toEqual({
+				event: "delete",
+				id: "revive-unzen",
+				dataDir,
+				taskId: "revive-unzen",
+			});
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}

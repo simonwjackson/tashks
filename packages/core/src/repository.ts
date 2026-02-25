@@ -773,6 +773,10 @@ export interface HookDiscoveryOptions {
 	readonly env?: NodeJS.ProcessEnv;
 }
 
+interface HookRuntimeOptions extends HookDiscoveryOptions {
+	readonly dataDir: string;
+}
+
 const defaultHooksDir = (env: NodeJS.ProcessEnv = process.env): string => {
 	const xdgConfigHome = env.XDG_CONFIG_HOME;
 	if (xdgConfigHome !== undefined && xdgConfigHome.length > 0) {
@@ -874,9 +878,22 @@ const parseTaskFromHookStdout = (
 			`TaskRepository hook ${hookPath} returned invalid JSON for on-${event}: ${toErrorMessage(error)}`,
 	});
 
+const buildHookEnv = (
+	event: HookEvent,
+	taskId: string,
+	options: HookRuntimeOptions,
+): NodeJS.ProcessEnv => ({
+	...process.env,
+	...options.env,
+	TASKS_EVENT: event,
+	TASKS_ID: taskId,
+	TASKS_DATA_DIR: options.dataDir,
+});
+
 const runHookExecutable = (
 	hookPath: string,
 	stdin: string,
+	env: NodeJS.ProcessEnv,
 ): Effect.Effect<string, string> =>
 	Effect.gen(function* () {
 		const result = yield* Effect.try({
@@ -885,6 +902,7 @@ const runHookExecutable = (
 					input: stdin,
 					encoding: "utf8",
 					stdio: ["pipe", "pipe", "pipe"],
+					env,
 				}),
 			catch: (error) =>
 				`TaskRepository failed to execute hook ${hookPath}: ${toErrorMessage(error)}`,
@@ -917,7 +935,7 @@ const runHookExecutable = (
 
 const runCreateHooks = (
 	task: Task,
-	options: HookDiscoveryOptions,
+	options: HookRuntimeOptions,
 ): Effect.Effect<Task, string> =>
 	Effect.gen(function* () {
 		const hooks = yield* discoverHooksForEvent("create", options);
@@ -927,6 +945,7 @@ const runCreateHooks = (
 			const stdout = yield* runHookExecutable(
 				hookPath,
 				JSON.stringify(currentTask),
+				buildHookEnv("create", currentTask.id, options),
 			);
 
 			if (stdout.trim().length === 0) {
@@ -942,7 +961,7 @@ const runCreateHooks = (
 const runModifyHooks = (
 	oldTask: Task,
 	newTask: Task,
-	options: HookDiscoveryOptions,
+	options: HookRuntimeOptions,
 ): Effect.Effect<Task, string> =>
 	Effect.gen(function* () {
 		const hooks = yield* discoverHooksForEvent("modify", options);
@@ -952,6 +971,7 @@ const runModifyHooks = (
 			const stdout = yield* runHookExecutable(
 				hookPath,
 				JSON.stringify({ old: oldTask, new: currentTask }),
+				buildHookEnv("modify", currentTask.id, options),
 			);
 
 			if (stdout.trim().length === 0) {
@@ -977,7 +997,7 @@ const runModifyHooks = (
 const runNonMutatingHooks = (
 	event: "complete" | "delete",
 	task: Task,
-	options: HookDiscoveryOptions,
+	options: HookRuntimeOptions,
 ): Effect.Effect<void, never> =>
 	Effect.gen(function* () {
 		const hooks = yield* discoverHooksForEvent(event, options).pipe(
@@ -985,9 +1005,11 @@ const runNonMutatingHooks = (
 		);
 
 		for (const hookPath of hooks) {
-			yield* runHookExecutable(hookPath, JSON.stringify(task)).pipe(
-				Effect.ignore,
-			);
+			yield* runHookExecutable(
+				hookPath,
+				JSON.stringify(task),
+				buildHookEnv(event, task.id, options),
+			).pipe(Effect.ignore);
 		}
 	});
 
@@ -1049,9 +1071,10 @@ const makeTaskRepositoryLive = (
 	options: TaskRepositoryLiveOptions = {},
 ): TaskRepositoryService => {
 	const dataDir = options.dataDir ?? defaultDataDir();
-	const hookDiscoveryOptions: HookDiscoveryOptions = {
+	const hookRuntimeOptions: HookRuntimeOptions = {
 		hooksDir: options.hooksDir,
 		env: options.hookEnv,
+		dataDir,
 	};
 
 	return {
@@ -1067,7 +1090,7 @@ const makeTaskRepositoryLive = (
 				const created = createTaskFromInput(input);
 				const taskFromHooks = yield* runCreateHooks(
 					created,
-					hookDiscoveryOptions,
+					hookRuntimeOptions,
 				);
 				yield* writeTaskToDisk(
 					taskFilePath(dataDir, taskFromHooks.id),
@@ -1082,7 +1105,7 @@ const makeTaskRepositoryLive = (
 				const taskFromHooks = yield* runModifyHooks(
 					existing.task,
 					updated,
-					hookDiscoveryOptions,
+					hookRuntimeOptions,
 				);
 				yield* writeTaskToDisk(existing.path, taskFromHooks);
 				return taskFromHooks;
@@ -1109,7 +1132,7 @@ const makeTaskRepositoryLive = (
 				yield* runNonMutatingHooks(
 					"complete",
 					completedTask,
-					hookDiscoveryOptions,
+					hookRuntimeOptions,
 				);
 
 				if (nextRecurringTask !== null) {
@@ -1170,11 +1193,7 @@ const makeTaskRepositoryLive = (
 			Effect.gen(function* () {
 				const existing = yield* readTaskByIdFromDisk(dataDir, id);
 				yield* deleteTaskFromDisk(existing.path, id);
-				yield* runNonMutatingHooks(
-					"delete",
-					existing.task,
-					hookDiscoveryOptions,
-				);
+				yield* runNonMutatingHooks("delete", existing.task, hookRuntimeOptions);
 				return { deleted: true } as const;
 			}),
 		setDailyHighlight: (id) =>
