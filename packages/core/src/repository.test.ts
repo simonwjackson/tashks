@@ -858,6 +858,46 @@ describe("TaskRepository service", () => {
 		}
 	});
 
+	it("completeTask parses RRULE-prefixed completion recurrence strings", async () => {
+		const dataDir = await mkdtemp(
+			join(tmpdir(), "tasks-complete-recur-rrule-prefix-"),
+		);
+		try {
+			await writeTaskFiles(dataDir, [
+				{
+					...baseTask(),
+					recurrence: "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO",
+					recurrence_trigger: "completion",
+					recurrence_last_generated: null,
+				},
+			]);
+
+			const completed = await runRepository(dataDir, (repository) =>
+				repository.completeTask("revive-unzen"),
+			);
+			expect(completed.completed_at).not.toBeNull();
+
+			const listed = await runRepository(dataDir, (repository) =>
+				repository.listTasks(),
+			);
+			expect(listed).toHaveLength(2);
+
+			const next = listed.find((task) => task.id !== "revive-unzen");
+			expect(next).toBeDefined();
+			if (next === undefined || completed.completed_at === null) {
+				throw new Error("Expected completed task and next recurrence task");
+			}
+
+			const completionDate = completed.completed_at.slice(0, 10);
+			expect(next.defer_until).toBe(addDaysToIsoDate(completionDate, 14));
+			expect(next.recurrence).toBe("RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO");
+			expect(next.recurrence_trigger).toBe("completion");
+			expect(next.recurrence_last_generated).toBe(completed.completed_at);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
 	it("generateNextRecurrence with replace drops the current instance and creates a new task", async () => {
 		const dataDir = await mkdtemp(join(tmpdir(), "tasks-next-recur-replace-"));
 		try {

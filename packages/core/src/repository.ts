@@ -6,7 +6,7 @@ import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { rrulestr } from "rrule";
+import { Frequency, RRule, rrulestr } from "rrule";
 import YAML from "yaml";
 import {
 	Task as TaskSchema,
@@ -371,44 +371,42 @@ interface CompletionRecurrenceInterval {
 	readonly interval: number;
 }
 
+const completionRecurrenceFrequencies = new Map<
+	Frequency,
+	CompletionRecurrenceInterval["frequency"]
+>([
+	[Frequency.DAILY, "DAILY"],
+	[Frequency.WEEKLY, "WEEKLY"],
+	[Frequency.MONTHLY, "MONTHLY"],
+	[Frequency.YEARLY, "YEARLY"],
+]);
+
 const parseCompletionRecurrenceInterval = (
 	recurrence: string,
 ): Effect.Effect<CompletionRecurrenceInterval, string> =>
 	Effect.try({
 		try: () => {
-			const segments = recurrence
-				.split(";")
-				.map((segment) => segment.trim())
-				.filter((segment) => segment.length > 0);
-
-			const fields = new Map<string, string>();
-			for (const segment of segments) {
-				const separator = segment.indexOf("=");
-				if (separator <= 0 || separator === segment.length - 1) {
-					continue;
-				}
-
-				const key = segment.slice(0, separator).toUpperCase();
-				const value = segment.slice(separator + 1).toUpperCase();
-				fields.set(key, value);
-			}
-
-			const frequency = fields.get("FREQ");
-			if (
-				frequency !== "DAILY" &&
-				frequency !== "WEEKLY" &&
-				frequency !== "MONTHLY" &&
-				frequency !== "YEARLY"
-			) {
+			const parsedRule = rrulestr(recurrence, { forceset: false });
+			if (!(parsedRule instanceof RRule)) {
 				throw new Error(
-					`Unsupported completion recurrence frequency: ${String(frequency)}`,
+					"Unsupported completion recurrence: expected a single RRULE",
 				);
 			}
 
-			const intervalValue = fields.get("INTERVAL") ?? "1";
-			const interval = Number.parseInt(intervalValue, 10);
+			const frequency = completionRecurrenceFrequencies.get(
+				parsedRule.options.freq,
+			);
+			if (frequency === undefined) {
+				const frequencyLabel =
+					Frequency[parsedRule.options.freq] ?? String(parsedRule.options.freq);
+				throw new Error(
+					`Unsupported completion recurrence frequency: ${frequencyLabel}`,
+				);
+			}
+
+			const interval = parsedRule.options.interval;
 			if (!Number.isFinite(interval) || interval < 1) {
-				throw new Error(`Invalid recurrence interval: ${intervalValue}`);
+				throw new Error(`Invalid recurrence interval: ${String(interval)}`);
 			}
 
 			return { frequency, interval } as const;
