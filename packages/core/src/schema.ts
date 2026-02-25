@@ -143,4 +143,50 @@ export const TaskCreateInput = Schema.Struct({
 });
 export type TaskCreateInput = Schema.Schema.Encoded<typeof TaskCreateInput>;
 
+export const TaskPatch = Schema.Struct({
+	id: Schema.optionalWith(Schema.String, { exact: true }),
+	title: Schema.optionalWith(Schema.String, { exact: true }),
+	status: Schema.optionalWith(TaskStatus, { exact: true }),
+	area: Schema.optionalWith(TaskArea, { exact: true }),
+	project: Schema.optionalWith(Schema.NullOr(Schema.String), { exact: true }),
+	tags: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
+	created: Schema.optionalWith(Schema.String, { exact: true }),
+	updated: Schema.optionalWith(Schema.String, { exact: true }),
+	urgency: Schema.optionalWith(TaskUrgency, { exact: true }),
+	energy: Schema.optionalWith(TaskEnergy, { exact: true }),
+	due: Schema.optionalWith(Schema.NullOr(Schema.String), { exact: true }),
+	context: Schema.optionalWith(Schema.String, { exact: true }),
+	subtasks: Schema.optionalWith(Schema.Array(Subtask), { exact: true }),
+	blocked_by: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
+	estimated_minutes: Schema.optionalWith(Schema.NullOr(Schema.Number), {
+		exact: true,
+	}),
+	actual_minutes: Schema.optionalWith(Schema.NullOr(Schema.Number), {
+		exact: true,
+	}),
+	completed_at: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		exact: true,
+	}),
+	last_surfaced: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		exact: true,
+	}),
+	defer_until: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		exact: true,
+	}),
+	nudge_count: Schema.optionalWith(Schema.Number, { exact: true }),
+	recurrence: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		exact: true,
+	}),
+	recurrence_trigger: Schema.optionalWith(TaskRecurrenceTrigger, {
+		exact: true,
+	}),
+	recurrence_strategy: Schema.optionalWith(TaskRecurrenceStrategy, {
+		exact: true,
+	}),
+	recurrence_last_generated: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		exact: true,
+	}),
+});
+export type TaskPatch = Schema.Schema.Encoded<typeof TaskPatch>;
+
 // TODO: WorkLogEntry, WorkLogCreateInput, WorkLogPatch schemas
