@@ -8,6 +8,7 @@ import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import type { Task } from "./schema.js";
 import {
+	applyPerspectiveToTasks,
 	byCreatedAsc,
 	byDueAsc,
 	byEnergyAsc,
@@ -592,6 +593,207 @@ describe("perspective config loader", () => {
 					`Perspective config loader failed: Invalid perspective config in ${join(dataDir, "perspectives.yaml")}`,
 				);
 			}
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("perspective application", () => {
+	it("applies all configured filters and due_asc sort", () => {
+		const tasks: Array<Task> = [
+			makeTask({
+				id: "eligible-later",
+				title: "Eligible later",
+				status: "active",
+				project: "homelab",
+				tags: ["ops", "weekly"],
+				energy: "low",
+				due: "2026-02-27",
+				updated: "2026-02-21",
+			}),
+			makeTask({
+				id: "eligible-earlier",
+				title: "Eligible earlier",
+				status: "active",
+				project: "homelab",
+				tags: ["ops"],
+				energy: "low",
+				due: "2026-02-26",
+				updated: "2026-02-20",
+			}),
+			makeTask({
+				id: "blocked-task",
+				title: "Blocked task",
+				status: "active",
+				project: "homelab",
+				tags: ["ops"],
+				energy: "low",
+				due: "2026-02-25",
+				blocked_by: ["active-blocker"],
+			}),
+			makeTask({
+				id: "active-blocker",
+				title: "Active blocker",
+				status: "active",
+				project: "homelab",
+				tags: ["ops"],
+				energy: "high",
+				due: null,
+			}),
+			makeTask({
+				id: "wrong-energy",
+				title: "Wrong energy",
+				status: "active",
+				project: "homelab",
+				tags: ["ops"],
+				energy: "medium",
+				due: "2026-02-26",
+			}),
+			makeTask({
+				id: "wrong-project",
+				title: "Wrong project",
+				status: "active",
+				project: "chores",
+				tags: ["ops"],
+				energy: "low",
+				due: "2026-02-26",
+			}),
+		];
+
+		const filtered = applyPerspectiveToTasks(
+			tasks,
+			{
+				filters: {
+					status: "active",
+					project: "homelab",
+					tags: ["ops"],
+					energy: "low",
+					due_before: "2026-02-27",
+					unblocked_only: true,
+				},
+				sort: "due_asc",
+			},
+			"2026-02-25",
+		);
+
+		expect(filtered.map((task) => task.id)).toEqual([
+			"eligible-earlier",
+			"eligible-later",
+		]);
+	});
+
+	it("sorts by completed_at descending when using done-day perspectives", () => {
+		const tasks: Array<Task> = [
+			makeTask({
+				id: "done-morning",
+				title: "Done morning",
+				status: "done",
+				completed_at: "2026-02-25T09:30:00Z",
+			}),
+			makeTask({
+				id: "done-afternoon",
+				title: "Done afternoon",
+				status: "done",
+				completed_at: "2026-02-25T16:45:00Z",
+			}),
+			makeTask({
+				id: "done-other-day",
+				title: "Done other day",
+				status: "done",
+				completed_at: "2026-02-24T12:00:00Z",
+			}),
+			makeTask({
+				id: "active-task",
+				title: "Active task",
+				status: "active",
+				completed_at: null,
+			}),
+		];
+
+		const filtered = applyPerspectiveToTasks(
+			tasks,
+			{
+				filters: {
+					status: "done",
+					completed_on: "2026-02-25",
+				},
+				sort: "completed_at_desc",
+			},
+			"2026-02-25",
+		);
+
+		expect(filtered.map((task) => task.id)).toEqual([
+			"done-afternoon",
+			"done-morning",
+		]);
+	});
+
+	it("applies loaded perspective config to tasks after relative date resolution", async () => {
+		const dataDir = await mkdtemp(
+			join(tmpdir(), "tasks-perspectives-apply-loaded-"),
+		);
+
+		try {
+			await writePerspectiveConfig(
+				dataDir,
+				[
+					"due-this-week:",
+					"  filters:",
+					"    status: active",
+					"    due_before: '+7d'",
+					"    unblocked_only: true",
+					"  sort: due_asc",
+				].join("\n"),
+			);
+
+			const config = await Effect.runPromise(
+				loadPerspectiveConfig(dataDir, "2026-02-25"),
+			);
+
+			const tasks: Array<Task> = [
+				makeTask({
+					id: "due-inside-window",
+					title: "Due inside window",
+					status: "active",
+					due: "2026-03-01",
+				}),
+				makeTask({
+					id: "due-tomorrow",
+					title: "Due tomorrow",
+					status: "active",
+					due: "2026-02-26",
+				}),
+				makeTask({
+					id: "due-outside-window",
+					title: "Due outside window",
+					status: "active",
+					due: "2026-03-12",
+				}),
+				makeTask({
+					id: "blocked-weekly-task",
+					title: "Blocked weekly task",
+					status: "active",
+					due: "2026-02-27",
+					blocked_by: ["blocker"],
+				}),
+				makeTask({
+					id: "blocker",
+					title: "Blocker",
+					status: "active",
+				}),
+			];
+
+			const filtered = applyPerspectiveToTasks(
+				tasks,
+				config["due-this-week"],
+				"2026-02-25",
+			);
+
+			expect(filtered.map((task) => task.id)).toEqual([
+				"due-tomorrow",
+				"due-inside-window",
+			]);
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}
