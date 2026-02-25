@@ -1,5 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import {
+	access,
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import * as Context from "effect/Context";
 import * as Either from "effect/Either";
@@ -756,6 +764,101 @@ export interface ListWorkLogFilters {
 export interface DeleteResult {
 	readonly deleted: true;
 }
+
+export type HookEvent = "create" | "modify" | "complete" | "delete";
+
+export interface HookDiscoveryOptions {
+	readonly hooksDir?: string;
+	readonly env?: NodeJS.ProcessEnv;
+}
+
+const defaultHooksDir = (env: NodeJS.ProcessEnv = process.env): string => {
+	const xdgConfigHome = env.XDG_CONFIG_HOME;
+	if (xdgConfigHome !== undefined && xdgConfigHome.length > 0) {
+		return join(xdgConfigHome, "tasks", "hooks");
+	}
+
+	const home = env.HOME;
+	return home !== undefined && home.length > 0
+		? join(home, ".config", "tasks", "hooks")
+		: join(".config", "tasks", "hooks");
+};
+
+const hookNamePattern = (event: HookEvent): RegExp =>
+	new RegExp(`^on-${event}(?:\\..+)?$`);
+
+const isHookCandidate = (event: HookEvent, fileName: string): boolean =>
+	hookNamePattern(event).test(fileName);
+
+const isExecutableFile = (path: string): Effect.Effect<boolean, string> =>
+	Effect.tryPromise({
+		try: async () => {
+			try {
+				await access(path, fsConstants.X_OK);
+				return true;
+			} catch (error) {
+				if (
+					error !== null &&
+					typeof error === "object" &&
+					"code" in error &&
+					(error.code === "EACCES" ||
+						error.code === "EPERM" ||
+						error.code === "ENOENT")
+				) {
+					return false;
+				}
+				throw error;
+			}
+		},
+		catch: (error) =>
+			`TaskRepository failed to inspect hook executable bit for ${path}: ${toErrorMessage(error)}`,
+	});
+
+export const discoverHooksForEvent = (
+	event: HookEvent,
+	options: HookDiscoveryOptions = {},
+): Effect.Effect<Array<string>, string> => {
+	const hooksDir = options.hooksDir ?? defaultHooksDir(options.env);
+
+	return Effect.gen(function* () {
+		const entries = yield* Effect.tryPromise({
+			try: () =>
+				readdir(hooksDir, { withFileTypes: true }).catch((error: unknown) => {
+					if (
+						error !== null &&
+						typeof error === "object" &&
+						"code" in error &&
+						error.code === "ENOENT"
+					) {
+						return [];
+					}
+					throw error;
+				}),
+			catch: (error) =>
+				`TaskRepository failed to read hooks directory ${hooksDir}: ${toErrorMessage(error)}`,
+		});
+
+		const candidatePaths = entries
+			.filter(
+				(entry) =>
+					(entry.isFile() || entry.isSymbolicLink()) &&
+					isHookCandidate(event, entry.name),
+			)
+			.map((entry) => join(hooksDir, entry.name))
+			.sort((a, b) => a.localeCompare(b));
+
+		const discovered: Array<string> = [];
+
+		for (const candidatePath of candidatePaths) {
+			const executable = yield* isExecutableFile(candidatePath);
+			if (executable) {
+				discovered.push(candidatePath);
+			}
+		}
+
+		return discovered;
+	});
+};
 
 export interface TaskRepositoryService {
 	readonly listTasks: (

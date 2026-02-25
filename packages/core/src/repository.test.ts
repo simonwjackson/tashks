@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdtemp,
+	mkdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Cause from "effect/Cause";
@@ -12,6 +19,7 @@ import {
 	applyTaskPatch,
 	applyWorkLogPatch,
 	createTaskFromInput,
+	discoverHooksForEvent,
 	generateTaskId,
 	parseTaskRecord,
 	parseWorkLogRecord,
@@ -95,6 +103,12 @@ const runListTasks = (
 			return yield* repository.listTasks(filters);
 		}).pipe(Effect.provide(TaskRepositoryLive({ dataDir }))),
 	);
+
+const runDiscoverHooks = (
+	event: Parameters<typeof discoverHooksForEvent>[0],
+	options?: Parameters<typeof discoverHooksForEvent>[1],
+): Promise<Array<string>> =>
+	Effect.runPromise(discoverHooksForEvent(event, options));
 
 const addDaysToIsoDate = (date: string, days: number): string => {
 	const next = new Date(`${date}T00:00:00.000Z`);
@@ -254,6 +268,97 @@ describe("repository pure helpers", () => {
 			ended_at: null,
 			date: "2026-02-21",
 		});
+	});
+
+	it("discoverHooksForEvent returns empty when the hook directory does not exist", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-hooks-missing-"));
+		try {
+			const hooks = await runDiscoverHooks("create", {
+				hooksDir: join(dataDir, "hooks"),
+			});
+			expect(hooks).toEqual([]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("discoverHooksForEvent finds only executable matching hooks in lexicographic order", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-hooks-discovery-"));
+		const hooksDir = join(dataDir, "hooks");
+
+		try {
+			await mkdir(hooksDir, { recursive: true });
+
+			await writeFile(
+				join(hooksDir, "on-create"),
+				"#!/usr/bin/env bash\n",
+				"utf8",
+			);
+			await chmod(join(hooksDir, "on-create"), 0o755);
+
+			await writeFile(
+				join(hooksDir, "on-create.10-second"),
+				"#!/usr/bin/env bash\n",
+				"utf8",
+			);
+			await chmod(join(hooksDir, "on-create.10-second"), 0o755);
+
+			await writeFile(
+				join(hooksDir, "on-create.20-not-executable"),
+				"#!/usr/bin/env bash\n",
+				"utf8",
+			);
+			await chmod(join(hooksDir, "on-create.20-not-executable"), 0o644);
+
+			await writeFile(
+				join(hooksDir, "on-create-helper"),
+				"#!/usr/bin/env bash\n",
+				"utf8",
+			);
+			await chmod(join(hooksDir, "on-create-helper"), 0o755);
+
+			await writeFile(
+				join(hooksDir, "on-modify"),
+				"#!/usr/bin/env bash\n",
+				"utf8",
+			);
+			await chmod(join(hooksDir, "on-modify"), 0o755);
+
+			const hooks = await runDiscoverHooks("create", { hooksDir });
+
+			expect(hooks).toEqual([
+				join(hooksDir, "on-create"),
+				join(hooksDir, "on-create.10-second"),
+			]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("discoverHooksForEvent resolves the XDG hook directory by default", async () => {
+		const xdgConfigHome = await mkdtemp(join(tmpdir(), "tasks-hooks-xdg-"));
+		const hooksDir = join(xdgConfigHome, "tasks", "hooks");
+
+		try {
+			await mkdir(hooksDir, { recursive: true });
+			await writeFile(
+				join(hooksDir, "on-create"),
+				"#!/usr/bin/env bash\n",
+				"utf8",
+			);
+			await chmod(join(hooksDir, "on-create"), 0o755);
+
+			const hooks = await runDiscoverHooks("create", {
+				env: {
+					XDG_CONFIG_HOME: xdgConfigHome,
+					HOME: "/home/ignored",
+				},
+			});
+
+			expect(hooks).toEqual([join(hooksDir, "on-create")]);
+		} finally {
+			await rm(xdgConfigHome, { recursive: true, force: true });
+		}
 	});
 });
 
