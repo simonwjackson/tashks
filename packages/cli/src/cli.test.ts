@@ -7,9 +7,12 @@ import {
 	formatOutput,
 	makeCli,
 	resolveCreateTaskInput,
+	resolveCreateWorkLogInput,
 	resolveGlobalCliOptions,
 	resolveListTaskFilters,
+	resolveListWorkLogFilters,
 	resolveUpdateTaskPatch,
+	resolveUpdateWorkLogPatch,
 	type GlobalCliOptions,
 } from "./cli.js";
 
@@ -218,6 +221,81 @@ describe("update patch resolution", () => {
 			recurrence: Option.none(),
 			recurrenceTrigger: Option.none(),
 			recurrenceStrategy: Option.none(),
+		});
+
+		expect(patch).toEqual({});
+	});
+});
+
+describe("worklog filter resolution", () => {
+	it("maps list options to worklog repository filters", () => {
+		const filters = resolveListWorkLogFilters({
+			date: Option.some("2026-03-05"),
+		});
+
+		expect(filters).toEqual({
+			date: "2026-03-05",
+		});
+	});
+
+	it("omits unset worklog list filters", () => {
+		const filters = resolveListWorkLogFilters({
+			date: Option.none(),
+		});
+
+		expect(filters).toEqual({});
+	});
+});
+
+describe("worklog create input resolution", () => {
+	it("maps create options to repository create input fields", () => {
+		const input = resolveCreateWorkLogInput({
+			taskId: "revive-unzen",
+			startedAt: "2026-03-05T09:00:00Z",
+			endedAt: Option.some("2026-03-05T10:15:00Z"),
+		});
+
+		expect(input).toEqual({
+			task_id: "revive-unzen",
+			started_at: "2026-03-05T09:00:00Z",
+			ended_at: "2026-03-05T10:15:00Z",
+		});
+	});
+
+	it("omits ended_at when not provided", () => {
+		const input = resolveCreateWorkLogInput({
+			taskId: "revive-unzen",
+			startedAt: "2026-03-05T09:00:00Z",
+			endedAt: Option.none(),
+		});
+
+		expect(input).toEqual({
+			task_id: "revive-unzen",
+			started_at: "2026-03-05T09:00:00Z",
+		});
+	});
+});
+
+describe("worklog update patch resolution", () => {
+	it("maps update options to repository patch fields", () => {
+		const patch = resolveUpdateWorkLogPatch({
+			taskId: Option.some("revive-unzen"),
+			startedAt: Option.some("2026-03-05T09:00:00Z"),
+			endedAt: Option.some("2026-03-05T10:15:00Z"),
+		});
+
+		expect(patch).toEqual({
+			task_id: "revive-unzen",
+			started_at: "2026-03-05T09:00:00Z",
+			ended_at: "2026-03-05T10:15:00Z",
+		});
+	});
+
+	it("omits unset worklog patch fields", () => {
+		const patch = resolveUpdateWorkLogPatch({
+			taskId: Option.none(),
+			startedAt: Option.none(),
+			endedAt: Option.none(),
 		});
 
 		expect(patch).toEqual({});
@@ -742,6 +820,228 @@ describe("cli parsing", () => {
 			{
 				dataDir: "/tmp/tasks-data",
 				pretty: true,
+			},
+		]);
+	});
+
+	it("parses `tasks worklog list` with filters", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly filters: ReturnType<typeof resolveListWorkLogFilters>;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _name) => Effect.void,
+			(_options) => Effect.void,
+			(_options) => Effect.void,
+			(options, filters) =>
+				Effect.sync(() => {
+					captured.push({ options, filters });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"worklog",
+				"list",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"--date",
+				"2026-03-05",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					pretty: true,
+				},
+				filters: {
+					date: "2026-03-05",
+				},
+			},
+		]);
+	});
+
+	it("parses `tasks worklog create` with all flags", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly input: ReturnType<typeof resolveCreateWorkLogInput>;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _name) => Effect.void,
+			(_options) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(options, input) =>
+				Effect.sync(() => {
+					captured.push({ options, input });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"worklog",
+				"create",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"--task-id",
+				"revive-unzen",
+				"--started-at",
+				"2026-03-05T09:00:00Z",
+				"--ended-at",
+				"2026-03-05T10:15:00Z",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					pretty: true,
+				},
+				input: {
+					task_id: "revive-unzen",
+					started_at: "2026-03-05T09:00:00Z",
+					ended_at: "2026-03-05T10:15:00Z",
+				},
+			},
+		]);
+	});
+
+	it("parses `tasks worklog update <id>` with patch flags", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly id: string;
+			readonly patch: ReturnType<typeof resolveUpdateWorkLogPatch>;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _name) => Effect.void,
+			(_options) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _input) => Effect.void,
+			(options, id, patch) =>
+				Effect.sync(() => {
+					captured.push({ options, id, patch });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"worklog",
+				"update",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"--task-id",
+				"revive-unzen",
+				"--started-at",
+				"2026-03-05T09:00:00Z",
+				"--ended-at",
+				"2026-03-05T10:15:00Z",
+				"revive-unzen-20260305T090000Z",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					pretty: true,
+				},
+				id: "revive-unzen-20260305T090000Z",
+				patch: {
+					task_id: "revive-unzen",
+					started_at: "2026-03-05T09:00:00Z",
+					ended_at: "2026-03-05T10:15:00Z",
+				},
+			},
+		]);
+	});
+
+	it("parses `tasks worklog delete <id>` with global options", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly id: string;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _name) => Effect.void,
+			(_options) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(options, id) =>
+				Effect.sync(() => {
+					captured.push({ options, id });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"worklog",
+				"delete",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"revive-unzen-20260305T090000Z",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					pretty: true,
+				},
+				id: "revive-unzen-20260305T090000Z",
 			},
 		]);
 	});

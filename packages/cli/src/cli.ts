@@ -36,8 +36,21 @@ export interface ListTasksCliOptionsInput {
 	readonly date: Option.Option<string>;
 }
 
+export interface ListWorkLogCliOptionsInput {
+	readonly date: Option.Option<string>;
+}
+
 type TaskCreateInput = Parameters<TaskRepositoryService["createTask"]>[0];
 type TaskPatchInput = Parameters<TaskRepositoryService["updateTask"]>[1];
+type ListWorkLogFilters = NonNullable<
+	Parameters<TaskRepositoryService["listWorkLog"]>[0]
+>;
+type WorkLogCreateInput = Parameters<
+	TaskRepositoryService["createWorkLogEntry"]
+>[0];
+type WorkLogPatchInput = Parameters<
+	TaskRepositoryService["updateWorkLogEntry"]
+>[1];
 
 export interface CreateTaskCliOptionsInput {
 	readonly title: string;
@@ -79,9 +92,26 @@ export interface UpdateTaskCliOptionsInput {
 	>;
 }
 
+export interface CreateWorkLogCliOptionsInput {
+	readonly taskId: string;
+	readonly startedAt: string;
+	readonly endedAt: Option.Option<string>;
+}
+
+export interface UpdateWorkLogCliOptionsInput {
+	readonly taskId: Option.Option<string>;
+	readonly startedAt: Option.Option<string>;
+	readonly endedAt: Option.Option<string>;
+}
+
 export type ListTasksExecute<R, E> = (
 	options: GlobalCliOptions,
 	filters: ListTasksFilters,
+) => Effect.Effect<void, E, R>;
+
+export type ListWorkLogExecute<R, E> = (
+	options: GlobalCliOptions,
+	filters: ListWorkLogFilters,
 ) => Effect.Effect<void, E, R>;
 
 export type GetTaskExecute<R, E> = (
@@ -126,6 +156,26 @@ export type PerspectiveExecute<R, E> = (
 
 export type PerspectivesExecute<R, E> = (
 	options: GlobalCliOptions,
+) => Effect.Effect<void, E, R>;
+
+export type WorkLogExecute<R, E> = (
+	options: GlobalCliOptions,
+) => Effect.Effect<void, E, R>;
+
+export type CreateWorkLogExecute<R, E> = (
+	options: GlobalCliOptions,
+	input: WorkLogCreateInput,
+) => Effect.Effect<void, E, R>;
+
+export type UpdateWorkLogExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+	patch: WorkLogPatchInput,
+) => Effect.Effect<void, E, R>;
+
+export type DeleteWorkLogExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
 ) => Effect.Effect<void, E, R>;
 
 export const defaultDataDir = (
@@ -267,6 +317,42 @@ export const resolveUpdateTaskPatch = (
 		...(recurrenceStrategy !== undefined
 			? { recurrence_strategy: recurrenceStrategy }
 			: {}),
+	};
+};
+
+export const resolveListWorkLogFilters = (
+	options: ListWorkLogCliOptionsInput,
+): ListWorkLogFilters => {
+	const date = toUndefined(options.date);
+
+	return {
+		...(date !== undefined ? { date } : {}),
+	};
+};
+
+export const resolveCreateWorkLogInput = (
+	options: CreateWorkLogCliOptionsInput,
+): WorkLogCreateInput => {
+	const endedAt = toUndefined(options.endedAt);
+
+	return {
+		task_id: options.taskId,
+		started_at: options.startedAt,
+		...(endedAt !== undefined ? { ended_at: endedAt } : {}),
+	};
+};
+
+export const resolveUpdateWorkLogPatch = (
+	options: UpdateWorkLogCliOptionsInput,
+): WorkLogPatchInput => {
+	const taskId = toUndefined(options.taskId);
+	const startedAt = toUndefined(options.startedAt);
+	const endedAt = toUndefined(options.endedAt);
+
+	return {
+		...(taskId !== undefined ? { task_id: taskId } : {}),
+		...(startedAt !== undefined ? { started_at: startedAt } : {}),
+		...(endedAt !== undefined ? { ended_at: endedAt } : {}),
 	};
 };
 
@@ -670,6 +756,135 @@ export const makePerspectivesCommand = <R, E>(
 			}),
 	).pipe(Command.withDescription("List saved perspectives"));
 
+export const makeWorkLogListCommand = <R, E>(
+	execute: ListWorkLogExecute<R, E>,
+) =>
+	Command.make(
+		"list",
+		{
+			dataDir: dataDirOption,
+			pretty: prettyOption,
+			date: Options.text("date").pipe(
+				Options.withDescription("Filter entries by date (YYYY-MM-DD)"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					pretty: options.pretty,
+				});
+				const filters = resolveListWorkLogFilters(options);
+				yield* execute(globalOptions, filters);
+			}),
+	).pipe(Command.withDescription("List work log entries"));
+
+export const makeWorkLogCreateCommand = <R, E>(
+	execute: CreateWorkLogExecute<R, E>,
+) =>
+	Command.make(
+		"create",
+		{
+			dataDir: dataDirOption,
+			pretty: prettyOption,
+			taskId: Options.text("task-id").pipe(
+				Options.withDescription("Task id for the work log entry"),
+			),
+			startedAt: Options.text("started-at").pipe(
+				Options.withDescription("Start timestamp (ISO datetime)"),
+			),
+			endedAt: Options.text("ended-at").pipe(
+				Options.withDescription("End timestamp (ISO datetime)"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					pretty: options.pretty,
+				});
+				const input = resolveCreateWorkLogInput(options);
+				yield* execute(globalOptions, input);
+			}),
+	).pipe(Command.withDescription("Create a work log entry"));
+
+export const makeWorkLogUpdateCommand = <R, E>(
+	execute: UpdateWorkLogExecute<R, E>,
+) =>
+	Command.make(
+		"update",
+		{
+			dataDir: dataDirOption,
+			pretty: prettyOption,
+			id: Args.text({ name: "id" }),
+			taskId: Options.text("task-id").pipe(
+				Options.withDescription("Updated task id"),
+				Options.optional,
+			),
+			startedAt: Options.text("started-at").pipe(
+				Options.withDescription("Updated start timestamp (ISO datetime)"),
+				Options.optional,
+			),
+			endedAt: Options.text("ended-at").pipe(
+				Options.withDescription("Updated end timestamp (ISO datetime)"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					pretty: options.pretty,
+				});
+				const patch = resolveUpdateWorkLogPatch(options);
+				yield* execute(globalOptions, options.id, patch);
+			}),
+	).pipe(Command.withDescription("Update a work log entry by id"));
+
+export const makeWorkLogDeleteCommand = <R, E>(
+	execute: DeleteWorkLogExecute<R, E>,
+) =>
+	Command.make(
+		"delete",
+		{
+			dataDir: dataDirOption,
+			pretty: prettyOption,
+			id: Args.text({ name: "id" }),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("Delete a work log entry by id"));
+
+export const makeWorkLogCommand = <R, E>(
+	execute: WorkLogExecute<R, E>,
+	executeList: ListWorkLogExecute<R, E>,
+	executeCreate: CreateWorkLogExecute<R, E>,
+	executeUpdate: UpdateWorkLogExecute<R, E>,
+	executeDelete: DeleteWorkLogExecute<R, E>,
+) =>
+	Command.make(
+		"worklog",
+		{ dataDir: dataDirOption, pretty: prettyOption },
+		({ dataDir, pretty }) =>
+			execute(resolveGlobalCliOptions({ dataDir, pretty })),
+	).pipe(
+		Command.withDescription("Manage work log entries"),
+		Command.withSubcommands([
+			makeWorkLogListCommand(executeList),
+			makeWorkLogCreateCommand(executeCreate),
+			makeWorkLogUpdateCommand(executeUpdate),
+			makeWorkLogDeleteCommand(executeDelete),
+		]),
+	);
+
 export const makeTasksCommand = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E>,
@@ -682,6 +897,11 @@ export const makeTasksCommand = <R, E>(
 	executeRecurrenceCheck: RecurrenceCheckExecute<R, E>,
 	executePerspective: PerspectiveExecute<R, E>,
 	executePerspectives: PerspectivesExecute<R, E>,
+	executeWorkLog: WorkLogExecute<R, E>,
+	executeWorkLogList: ListWorkLogExecute<R, E>,
+	executeWorkLogCreate: CreateWorkLogExecute<R, E>,
+	executeWorkLogUpdate: UpdateWorkLogExecute<R, E>,
+	executeWorkLogDelete: DeleteWorkLogExecute<R, E>,
 ) =>
 	Command.make(
 		"tasks",
@@ -703,6 +923,13 @@ export const makeTasksCommand = <R, E>(
 			makeRecurrenceCheckCommand(executeRecurrenceCheck),
 			makePerspectiveCommand(executePerspective),
 			makePerspectivesCommand(executePerspectives),
+			makeWorkLogCommand(
+				executeWorkLog,
+				executeWorkLogList,
+				executeWorkLogCreate,
+				executeWorkLogUpdate,
+				executeWorkLogDelete,
+			),
 		]),
 	);
 
@@ -756,6 +983,30 @@ const noopPerspectiveExecute = (
 
 const noopPerspectivesExecute = (
 	_options: GlobalCliOptions,
+): Effect.Effect<void> => Effect.void;
+
+const noopWorkLogExecute = (_options: GlobalCliOptions): Effect.Effect<void> =>
+	Effect.void;
+
+const noopWorkLogListExecute = (
+	_options: GlobalCliOptions,
+	_filters: ListWorkLogFilters,
+): Effect.Effect<void> => Effect.void;
+
+const noopWorkLogCreateExecute = (
+	_options: GlobalCliOptions,
+	_input: WorkLogCreateInput,
+): Effect.Effect<void> => Effect.void;
+
+const noopWorkLogUpdateExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+	_patch: WorkLogPatchInput,
+): Effect.Effect<void> => Effect.void;
+
+const noopWorkLogDeleteExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
 ): Effect.Effect<void> => Effect.void;
 
 const defaultListExecute: ListTasksExecute<never, string> = (
@@ -889,6 +1140,59 @@ const defaultPerspectivesExecute: PerspectivesExecute<never, string> = (
 		});
 	});
 
+const defaultWorkLogListExecute: ListWorkLogExecute<never, string> = (
+	options,
+	filters,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const entries = yield* repository.listWorkLog(filters);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(entries, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+
+const defaultWorkLogCreateExecute: CreateWorkLogExecute<never, string> = (
+	options,
+	input,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const entry = yield* repository.createWorkLogEntry(input);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(entry, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+
+const defaultWorkLogUpdateExecute: UpdateWorkLogExecute<never, string> = (
+	options,
+	id,
+	patch,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const entry = yield* repository.updateWorkLogEntry(id, patch);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(entry, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+
+const defaultWorkLogDeleteExecute: DeleteWorkLogExecute<never, string> = (
+	options,
+	id,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const result = yield* repository.deleteWorkLogEntry(id);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(result, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+
 export const makeCli = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E> = noopListExecute as ListTasksExecute<
@@ -928,6 +1232,26 @@ export const makeCli = <R, E>(
 		R,
 		E
 	> = noopPerspectivesExecute as PerspectivesExecute<R, E>,
+	executeWorkLog: WorkLogExecute<R, E> = noopWorkLogExecute as WorkLogExecute<
+		R,
+		E
+	>,
+	executeWorkLogList: ListWorkLogExecute<
+		R,
+		E
+	> = noopWorkLogListExecute as ListWorkLogExecute<R, E>,
+	executeWorkLogCreate: CreateWorkLogExecute<
+		R,
+		E
+	> = noopWorkLogCreateExecute as CreateWorkLogExecute<R, E>,
+	executeWorkLogUpdate: UpdateWorkLogExecute<
+		R,
+		E
+	> = noopWorkLogUpdateExecute as UpdateWorkLogExecute<R, E>,
+	executeWorkLogDelete: DeleteWorkLogExecute<
+		R,
+		E
+	> = noopWorkLogDeleteExecute as DeleteWorkLogExecute<R, E>,
 ) =>
 	Command.run(
 		makeTasksCommand(
@@ -942,6 +1266,11 @@ export const makeCli = <R, E>(
 			executeRecurrenceCheck,
 			executePerspective,
 			executePerspectives,
+			executeWorkLog,
+			executeWorkLogList,
+			executeWorkLogCreate,
+			executeWorkLogUpdate,
+			executeWorkLogDelete,
 		),
 		{
 			name: "Tasks CLI",
@@ -961,6 +1290,11 @@ export const cli = makeCli(
 	defaultRecurrenceCheckExecute,
 	defaultPerspectiveExecute,
 	defaultPerspectivesExecute,
+	noopWorkLogExecute,
+	defaultWorkLogListExecute,
+	defaultWorkLogCreateExecute,
+	defaultWorkLogUpdateExecute,
+	defaultWorkLogDeleteExecute,
 );
 
 export const runCli = (argv: ReadonlyArray<string> = process.argv) => cli(argv);
