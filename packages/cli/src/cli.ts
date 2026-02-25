@@ -96,6 +96,11 @@ export type UpdateTaskExecute<R, E> = (
 	patch: TaskPatchInput,
 ) => Effect.Effect<void, E, R>;
 
+export type DeleteTaskExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+) => Effect.Effect<void, E, R>;
+
 export const defaultDataDir = (
 	env: NodeJS.ProcessEnv = process.env,
 ): string => {
@@ -524,12 +529,31 @@ export const makeUpdateCommand = <R, E>(execute: UpdateTaskExecute<R, E>) =>
 			}),
 	).pipe(Command.withDescription("Update a task by id"));
 
+export const makeDeleteCommand = <R, E>(execute: DeleteTaskExecute<R, E>) =>
+	Command.make(
+		"delete",
+		{
+			dataDir: dataDirOption,
+			pretty: prettyOption,
+			id: Args.text({ name: "id" }),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("Delete a task by id"));
+
 export const makeTasksCommand = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E>,
 	executeGet: GetTaskExecute<R, E>,
 	executeCreate: CreateTaskExecute<R, E>,
 	executeUpdate: UpdateTaskExecute<R, E>,
+	executeDelete: DeleteTaskExecute<R, E>,
 ) =>
 	Command.make(
 		"tasks",
@@ -545,6 +569,7 @@ export const makeTasksCommand = <R, E>(
 			makeGetCommand(executeGet),
 			makeCreateCommand(executeCreate),
 			makeUpdateCommand(executeUpdate),
+			makeDeleteCommand(executeDelete),
 		]),
 	);
 
@@ -570,6 +595,11 @@ const noopUpdateExecute = (
 	_options: GlobalCliOptions,
 	_id: string,
 	_patch: TaskPatchInput,
+): Effect.Effect<void> => Effect.void;
+
+const noopDeleteExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
 ): Effect.Effect<void> => Effect.void;
 
 const defaultListExecute: ListTasksExecute<never, string> = (
@@ -622,6 +652,16 @@ const defaultUpdateExecute: UpdateTaskExecute<never, string> = (
 		});
 	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
 
+const defaultDeleteExecute: DeleteTaskExecute<never, string> = (options, id) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const result = yield* repository.deleteTask(id);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(result, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+
 export const makeCli = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E> = noopListExecute as ListTasksExecute<
@@ -637,6 +677,10 @@ export const makeCli = <R, E>(
 		R,
 		E
 	> = noopUpdateExecute as UpdateTaskExecute<R, E>,
+	executeDelete: DeleteTaskExecute<
+		R,
+		E
+	> = noopDeleteExecute as DeleteTaskExecute<R, E>,
 ) =>
 	Command.run(
 		makeTasksCommand(
@@ -645,6 +689,7 @@ export const makeCli = <R, E>(
 			executeGet,
 			executeCreate,
 			executeUpdate,
+			executeDelete,
 		),
 		{
 			name: "Tasks CLI",
@@ -658,6 +703,7 @@ export const cli = makeCli(
 	defaultGetExecute,
 	defaultCreateExecute,
 	defaultUpdateExecute,
+	defaultDeleteExecute,
 );
 
 export const runCli = (argv: ReadonlyArray<string> = process.argv) => cli(argv);
