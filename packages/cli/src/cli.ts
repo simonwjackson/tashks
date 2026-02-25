@@ -8,6 +8,10 @@ import {
 	type ListTasksFilters,
 	type TaskRepositoryService,
 } from "@tasks/core/dist/src/repository.js";
+import {
+	applyPerspectiveToTasks,
+	loadPerspectiveConfig,
+} from "@tasks/core/dist/src/query.js";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -109,6 +113,15 @@ export type HighlightTaskExecute<R, E> = (
 export type CompleteTaskExecute<R, E> = (
 	options: GlobalCliOptions,
 	id: string,
+) => Effect.Effect<void, E, R>;
+
+export type PerspectiveExecute<R, E> = (
+	options: GlobalCliOptions,
+	name: string,
+) => Effect.Effect<void, E, R>;
+
+export type PerspectivesExecute<R, E> = (
+	options: GlobalCliOptions,
 ) => Effect.Effect<void, E, R>;
 
 export const defaultDataDir = (
@@ -595,6 +608,45 @@ export const makeCompleteCommand = <R, E>(execute: CompleteTaskExecute<R, E>) =>
 			}),
 	).pipe(Command.withDescription("Complete a task by id"));
 
+export const makePerspectiveCommand = <R, E>(
+	execute: PerspectiveExecute<R, E>,
+) =>
+	Command.make(
+		"perspective",
+		{
+			dataDir: dataDirOption,
+			pretty: prettyOption,
+			name: Args.text({ name: "name" }),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.name);
+			}),
+	).pipe(Command.withDescription("Run a saved perspective by name"));
+
+export const makePerspectivesCommand = <R, E>(
+	execute: PerspectivesExecute<R, E>,
+) =>
+	Command.make(
+		"perspectives",
+		{
+			dataDir: dataDirOption,
+			pretty: prettyOption,
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions);
+			}),
+	).pipe(Command.withDescription("List saved perspectives"));
+
 export const makeTasksCommand = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E>,
@@ -604,6 +656,8 @@ export const makeTasksCommand = <R, E>(
 	executeDelete: DeleteTaskExecute<R, E>,
 	executeHighlight: HighlightTaskExecute<R, E>,
 	executeComplete: CompleteTaskExecute<R, E>,
+	executePerspective: PerspectiveExecute<R, E>,
+	executePerspectives: PerspectivesExecute<R, E>,
 ) =>
 	Command.make(
 		"tasks",
@@ -622,6 +676,8 @@ export const makeTasksCommand = <R, E>(
 			makeDeleteCommand(executeDelete),
 			makeHighlightCommand(executeHighlight),
 			makeCompleteCommand(executeComplete),
+			makePerspectiveCommand(executePerspective),
+			makePerspectivesCommand(executePerspectives),
 		]),
 	);
 
@@ -662,6 +718,15 @@ const noopHighlightExecute = (
 const noopCompleteExecute = (
 	_options: GlobalCliOptions,
 	_id: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopPerspectiveExecute = (
+	_options: GlobalCliOptions,
+	_name: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopPerspectivesExecute = (
+	_options: GlobalCliOptions,
 ): Effect.Effect<void> => Effect.void;
 
 const defaultListExecute: ListTasksExecute<never, string> = (
@@ -750,6 +815,39 @@ const defaultCompleteExecute: CompleteTaskExecute<never, string> = (
 		});
 	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
 
+const defaultPerspectiveExecute: PerspectiveExecute<never, string> = (
+	options,
+	name,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const tasks = yield* repository.listTasks();
+		const config = yield* loadPerspectiveConfig(options.dataDir);
+		const perspective = config[name];
+
+		if (perspective === undefined) {
+			return yield* Effect.fail(`Perspective not found: ${name}`);
+		}
+
+		const projected = applyPerspectiveToTasks(tasks, perspective);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(projected, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+
+const defaultPerspectivesExecute: PerspectivesExecute<never, string> = (
+	options,
+) =>
+	Effect.gen(function* () {
+		const config = yield* loadPerspectiveConfig(options.dataDir);
+		const names = Object.keys(config).sort((a, b) => a.localeCompare(b));
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(names, options.pretty)}\n`);
+		});
+	});
+
 export const makeCli = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E> = noopListExecute as ListTasksExecute<
@@ -777,6 +875,14 @@ export const makeCli = <R, E>(
 		R,
 		E
 	> = noopCompleteExecute as CompleteTaskExecute<R, E>,
+	executePerspective: PerspectiveExecute<
+		R,
+		E
+	> = noopPerspectiveExecute as PerspectiveExecute<R, E>,
+	executePerspectives: PerspectivesExecute<
+		R,
+		E
+	> = noopPerspectivesExecute as PerspectivesExecute<R, E>,
 ) =>
 	Command.run(
 		makeTasksCommand(
@@ -788,6 +894,8 @@ export const makeCli = <R, E>(
 			executeDelete,
 			executeHighlight,
 			executeComplete,
+			executePerspective,
+			executePerspectives,
 		),
 		{
 			name: "Tasks CLI",
@@ -804,6 +912,8 @@ export const cli = makeCli(
 	defaultDeleteExecute,
 	defaultHighlightExecute,
 	defaultCompleteExecute,
+	defaultPerspectiveExecute,
+	defaultPerspectivesExecute,
 );
 
 export const runCli = (argv: ReadonlyArray<string> = process.argv) => cli(argv);

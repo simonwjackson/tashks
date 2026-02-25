@@ -627,4 +627,84 @@ describe("cli parsing", () => {
 			},
 		]);
 	});
+
+	it("parses `tasks perspective <name>` with global options", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly name: string;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(options, name) =>
+				Effect.sync(() => {
+					captured.push({ options, name });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"perspective",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"quick-wins",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					pretty: true,
+				},
+				name: "quick-wins",
+			},
+		]);
+	});
+
+	it("parses `tasks perspectives` with global options", async () => {
+		const captured: Array<GlobalCliOptions> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _name) => Effect.void,
+			(options) =>
+				Effect.sync(() => {
+					captured.push(options);
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"perspectives",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				dataDir: "/tmp/tasks-data",
+				pretty: true,
+			},
+		]);
+	});
 });
