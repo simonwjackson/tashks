@@ -39,7 +39,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] Filter predicates: `hasEnergy`, `hasTag`, `hasProject` — *needs:* Phase 1
 - [x] Filter predicates: `isStalerThan`, `wasCompletedOn`, `wasCompletedBetween` — *needs:* Phase 1
 - [x] Sort helpers: `byDueAsc`, `byEnergyAsc`, `byCreatedAsc`, `byUpdatedDescThenTitle` — *needs:* Phase 1
-- [ ] Add tests for all predicates and sort helpers
+- [x] Add tests for all predicates and sort helpers
 
 ## Phase 4: Repository Layer
 
