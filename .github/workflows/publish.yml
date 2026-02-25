@@ -28,6 +28,8 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+      - name: Remove auth token placeholder for OIDC publishing
+        run: sed -i '/_authToken/d' ~/.npmrc
       - run: nix develop --command bash -c "bun install && bun run build"
       - name: Resolve workspace references
         run: |
