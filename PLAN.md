@@ -27,7 +27,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] `todayIso()` — current date as ISO string
 - [x] `createTaskFromInput(input)` — apply defaults, generate ID — *needs:* Phase 1
 - [x] `applyTaskPatch(task, patch)` — merge patch, auto-set `updated` — *needs:* Phase 1
-- [ ] `parseTaskRecord(unknown)` — validate raw YAML data against Task schema — *needs:* Phase 1
+- [x] `parseTaskRecord(unknown)` — validate raw YAML data against Task schema — *needs:* Phase 1
 - [ ] `parseWorkLogRecord(unknown)` — validate raw YAML data against WorkLogEntry schema — *needs:* Phase 1
 - [ ] `applyWorkLogPatch(entry, patch)` — merge patch — *needs:* Phase 1
 - [ ] Add tests for all pure helpers
