@@ -6,6 +6,7 @@ import {
 	defaultDataDir,
 	formatOutput,
 	makeCli,
+	resolveListTaskFilters,
 	resolveGlobalCliOptions,
 	type GlobalCliOptions,
 } from "./cli.js";
@@ -66,6 +67,47 @@ describe("cli output formatting", () => {
 	});
 });
 
+describe("list filter resolution", () => {
+	it("maps all list options to repository filter fields", () => {
+		const filters = resolveListTaskFilters({
+			status: Option.some("active"),
+			area: Option.some("work"),
+			project: Option.some("homelab"),
+			tags: Option.some("hardware, weekend, ,ops"),
+			dueBefore: Option.some("2026-03-07"),
+			dueAfter: Option.some("2026-03-03"),
+			unblockedOnly: true,
+			date: Option.some("2026-03-05"),
+		});
+
+		expect(filters).toEqual({
+			status: "active",
+			area: "work",
+			project: "homelab",
+			tags: ["hardware", "weekend", "ops"],
+			due_before: "2026-03-07",
+			due_after: "2026-03-03",
+			unblocked_only: true,
+			date: "2026-03-05",
+		});
+	});
+
+	it("omits unset filters and empty tag lists", () => {
+		const filters = resolveListTaskFilters({
+			status: Option.none(),
+			area: Option.none(),
+			project: Option.none(),
+			tags: Option.some(" ,  , "),
+			dueBefore: Option.none(),
+			dueAfter: Option.none(),
+			unblockedOnly: false,
+			date: Option.none(),
+		});
+
+		expect(filters).toEqual({});
+	});
+});
+
 describe("cli parsing", () => {
 	it("parses --data-dir and --pretty as global options", async () => {
 		const captured: Array<GlobalCliOptions> = [];
@@ -89,6 +131,65 @@ describe("cli parsing", () => {
 			{
 				dataDir: "/tmp/tasks-data",
 				pretty: true,
+			},
+		]);
+	});
+
+	it("parses `tasks list` with all list filter flags", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly filters: ReturnType<typeof resolveListTaskFilters>;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(options, filters) =>
+				Effect.sync(() => {
+					captured.push({ options, filters });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"list",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"--status",
+				"active",
+				"--area",
+				"work",
+				"--project",
+				"homelab",
+				"--tags",
+				"hardware, weekend,ops",
+				"--due-before",
+				"2026-03-07",
+				"--due-after",
+				"2026-03-03",
+				"--unblocked-only",
+				"--date",
+				"2026-03-05",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					pretty: true,
+				},
+				filters: {
+					status: "active",
+					area: "work",
+					project: "homelab",
+					tags: ["hardware", "weekend", "ops"],
+					due_before: "2026-03-07",
+					due_after: "2026-03-03",
+					unblocked_only: true,
+					date: "2026-03-05",
+				},
 			},
 		]);
 	});
