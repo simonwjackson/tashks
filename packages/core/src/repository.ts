@@ -19,12 +19,18 @@ import {
 	WorkLogCreateInput as WorkLogCreateInputSchema,
 	WorkLogEntry as WorkLogEntrySchema,
 	WorkLogPatch as WorkLogPatchSchema,
+	Project as ProjectSchema,
+	ProjectCreateInput as ProjectCreateInputSchema,
+	ProjectPatch as ProjectPatchSchema,
 	type Task,
 	type TaskCreateInput,
 	type TaskPatch,
 	type WorkLogCreateInput,
 	type WorkLogEntry,
 	type WorkLogPatch,
+	type Project,
+	type ProjectCreateInput,
+	type ProjectPatch,
 } from "./schema.js";
 import {
 	byUpdatedDescThenTitle,
@@ -61,6 +67,11 @@ const decodeWorkLogEntry = Schema.decodeUnknownSync(WorkLogEntrySchema);
 const decodeWorkLogEntryEither = Schema.decodeUnknownEither(WorkLogEntrySchema);
 const decodeWorkLogPatch = Schema.decodeUnknownSync(WorkLogPatchSchema);
 
+const decodeProject = Schema.decodeUnknownSync(ProjectSchema);
+const decodeProjectEither = Schema.decodeUnknownEither(ProjectSchema);
+const decodeProjectCreateInput = Schema.decodeUnknownSync(ProjectCreateInputSchema);
+const decodeProjectPatch = Schema.decodeUnknownSync(ProjectPatchSchema);
+
 const toErrorMessage = (error: unknown): string =>
 	error instanceof Error ? error.message : String(error);
 
@@ -75,6 +86,12 @@ const workLogFilePath = (dataDir: string, id: string): string =>
 
 const legacyWorkLogFilePath = (dataDir: string, id: string): string =>
 	join(dataDir, "work-log", `${id}.yml`);
+
+const projectFilePath = (dataDir: string, id: string): string =>
+	join(dataDir, "projects", `${id}.yaml`);
+
+const legacyProjectFilePath = (dataDir: string, id: string): string =>
+	join(dataDir, "projects", `${id}.yml`);
 
 const dailyHighlightFilePath = (dataDir: string): string =>
 	join(dataDir, "daily-highlight.yaml");
@@ -91,6 +108,13 @@ const ensureWorkLogDir = (dataDir: string): Effect.Effect<void, string> =>
 		try: () => mkdir(join(dataDir, "work-log"), { recursive: true }),
 		catch: (error) =>
 			`TaskRepository failed to create work-log directory: ${toErrorMessage(error)}`,
+	});
+
+const ensureProjectsDir = (dataDir: string): Effect.Effect<void, string> =>
+	Effect.tryPromise({
+		try: () => mkdir(join(dataDir, "projects"), { recursive: true }),
+		catch: (error) =>
+			`TaskRepository failed to create projects directory: ${toErrorMessage(error)}`,
 	});
 
 const writeDailyHighlightToDisk = (
@@ -396,6 +420,118 @@ const generateNextClockRecurrence = (
 		return { nextTask: result.nextTask, replacedId } as const;
 	});
 
+const readProjectByIdFromDisk = (
+	dataDir: string,
+	id: string,
+): Effect.Effect<{ readonly path: string; readonly project: Project }, string> =>
+	Effect.tryPromise({
+		try: async () => {
+			const candidatePaths = [
+				projectFilePath(dataDir, id),
+				legacyProjectFilePath(dataDir, id),
+			];
+
+			for (const path of candidatePaths) {
+				const source = await readFile(path, "utf8").catch((error: unknown) => {
+					if (
+						error !== null &&
+						typeof error === "object" &&
+						"code" in error &&
+						error.code === "ENOENT"
+					) {
+						return null;
+					}
+					throw error;
+				});
+
+				if (source === null) {
+					continue;
+				}
+
+				const parsed = YAML.parse(source);
+				const project = parseProjectRecord(parsed);
+				if (project === null) {
+					throw new Error(`Invalid project record in ${path}`);
+				}
+
+				return { path, project };
+			}
+
+			throw new Error(`Project not found: ${id}`);
+		},
+		catch: (error) =>
+			`TaskRepository failed to read project ${id}: ${toErrorMessage(error)}`,
+	});
+
+const readProjectsFromDisk = (
+	dataDir: string,
+): Effect.Effect<Array<Project>, string> =>
+	Effect.tryPromise({
+		try: async () => {
+			const projectsDir = join(dataDir, "projects");
+			const entries = await readdir(projectsDir, { withFileTypes: true }).catch(
+				(error: unknown) => {
+					if (
+						error !== null &&
+						typeof error === "object" &&
+						"code" in error &&
+						error.code === "ENOENT"
+					) {
+						return [];
+					}
+					throw error;
+				},
+			);
+
+			const projectFiles = entries
+				.filter(
+					(entry) =>
+						entry.isFile() &&
+						(entry.name.endsWith(".yaml") || entry.name.endsWith(".yml")),
+				)
+				.map((entry) => entry.name);
+
+			const projects: Array<Project> = [];
+
+			for (const fileName of projectFiles) {
+				const filePath = join(projectsDir, fileName);
+				const source = await readFile(filePath, "utf8");
+				const parsed = YAML.parse(source);
+				const project = parseProjectRecord(parsed);
+
+				if (project === null) {
+					throw new Error(`Invalid project record in ${filePath}`);
+				}
+
+				projects.push(project);
+			}
+
+			return projects;
+		},
+		catch: (error) =>
+			`TaskRepository.listProjects failed to read project files: ${toErrorMessage(error)}`,
+	});
+
+const writeProjectToDisk = (
+	path: string,
+	project: Project,
+): Effect.Effect<void, string> =>
+	Effect.tryPromise({
+		try: () => writeFile(path, YAML.stringify(project), "utf8"),
+		catch: (error) =>
+			`TaskRepository failed to write project ${project.id}: ${toErrorMessage(error)}`,
+	});
+
+const deleteProjectFromDisk = (
+	path: string,
+	id: string,
+): Effect.Effect<void, string> =>
+	Effect.tryPromise({
+		try: () => rm(path),
+		catch: (error) =>
+			`TaskRepository failed to delete project ${id}: ${toErrorMessage(error)}`,
+	});
+
 const byStartedAtDescThenId = (a: WorkLogEntry, b: WorkLogEntry): number => {
 	const byStartedAtDesc = b.started_at.localeCompare(a.started_at);
 	if (byStartedAtDesc !== 0) {
@@ -473,6 +609,34 @@ export interface ListTasksFilters {
 	readonly date?: string;
 }
 
+export interface ListProjectsFilters {
+	readonly status?: string;
+	readonly area?: string;
+}
+
+export const applyListProjectFilters = (
+	projects: Array<Project>,
+	filters: ListProjectsFilters = {},
+): Array<Project> => {
+	return projects
+		.filter((project) => {
+			if (filters.status !== undefined && project.status !== filters.status) {
+				return false;
+			}
+			if (filters.area !== undefined && project.area !== filters.area) {
+				return false;
+			}
+			return true;
+		})
+		.sort((a, b) => {
+			const byUpdatedDesc = b.updated.localeCompare(a.updated);
+			if (byUpdatedDesc !== 0) {
+				return byUpdatedDesc;
+			}
+			return a.title.localeCompare(b.title);
+		});
+};
+
 export interface ListWorkLogFilters {
 	readonly date?: string;
 }
@@ -519,6 +683,19 @@ export interface TaskRepositoryService {
 	readonly importWorkLogEntry: (
 		entry: WorkLogEntry,
 	) => Effect.Effect<WorkLogEntry, string>;
+	readonly listProjects: (
+		filters?: ListProjectsFilters,
+	) => Effect.Effect<Array<Project>, string>;
+	readonly getProject: (id: string) => Effect.Effect<Project, string>;
+	readonly createProject: (
+		input: ProjectCreateInput,
+	) => Effect.Effect<Project, string>;
+	readonly updateProject: (
+		id: string,
+		patch: ProjectPatch,
+	) => Effect.Effect<Project, string>;
+	readonly deleteProject: (id: string) => Effect.Effect<DeleteResult, string>;
+	readonly importProject: (project: Project) => Effect.Effect<Project, string>;
 }
 
 export class TaskRepository extends Context.Tag("TaskRepository")<
@@ -738,6 +915,41 @@ const makeTaskRepositoryLive = (
 				);
 				return entry;
 			}),
+		listProjects: (filters) =>
+			Effect.map(readProjectsFromDisk(dataDir), (projects) =>
+				applyListProjectFilters(projects, filters),
+			),
+		getProject: (id) =>
+			Effect.map(readProjectByIdFromDisk(dataDir, id), (result) => result.project),
+		createProject: (input) =>
+			Effect.gen(function* () {
+				yield* ensureProjectsDir(dataDir);
+				const created = createProjectFromInput(input);
+				yield* writeProjectToDisk(
+					projectFilePath(dataDir, created.id),
+					created,
+				);
+				return created;
+			}),
+		updateProject: (id, patch) =>
+			Effect.gen(function* () {
+				const existing = yield* readProjectByIdFromDisk(dataDir, id);
+				const updated = applyProjectPatch(existing.project, patch);
+				yield* writeProjectToDisk(existing.path, updated);
+				return updated;
+			}),
+		deleteProject: (id) =>
+			Effect.gen(function* () {
+				const existing = yield* readProjectByIdFromDisk(dataDir, id);
+				yield* deleteProjectFromDisk(existing.path, id);
+				return { deleted: true } as const;
+			}),
+		importProject: (project) =>
+			Effect.gen(function* () {
+				yield* ensureProjectsDir(dataDir);
+				yield* writeProjectToDisk(projectFilePath(dataDir, project.id), project);
+				return project;
+			}),
 	};
 };
 
@@ -788,5 +1000,30 @@ export const applyWorkLogPatch = (
 	return decodeWorkLogEntry({
 		...normalizedEntry,
 		...normalizedPatch,
+	});
+};
+
+export const parseProjectRecord = (record: unknown): Project | null => {
+	const result = decodeProjectEither(record);
+	return Either.isRight(result) ? result.right : null;
+};
+
+export const createProjectFromInput = (input: ProjectCreateInput): Project => {
+	const normalizedInput = decodeProjectCreateInput(input);
+
+	return decodeProject({
+		...normalizedInput,
+		id: generateTaskId(normalizedInput.title),
+	});
+};
+
+export const applyProjectPatch = (project: Project, patch: ProjectPatch): Project => {
+	const normalizedProject = decodeProject(project);
+	const normalizedPatch = decodeProjectPatch(patch);
+
+	return decodeProject({
+		...normalizedProject,
+		...normalizedPatch,
+		updated: todayIso(),
 	});
 };

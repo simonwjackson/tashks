@@ -10,8 +10,14 @@ import {
 	Task as TaskSchema,
 	WorkLogCreateInput as WorkLogCreateInputSchema,
 	WorkLogEntry as WorkLogEntrySchema,
+	Project as ProjectSchema,
+	ProjectCreateInput as ProjectCreateInputSchema,
+	ProjectPatch as ProjectPatchSchema,
 	type Task,
 	type WorkLogEntry,
+	type Project,
+	type ProjectCreateInput,
+	type ProjectPatch,
 } from "./schema.js";
 import {
 	byUpdatedDescThenTitle,
@@ -28,14 +34,17 @@ import {
 	buildNextClockRecurrenceTask,
 	isClockRecurrenceDue,
 } from "./recurrence.js";
-import type { TaskRepositoryService } from "./repository.js";
+import type { TaskRepositoryService, ListProjectsFilters } from "./repository.js";
 import {
 	TaskRepository,
 	applyListTaskFilters,
+	applyListProjectFilters,
 	todayIso,
 	applyTaskPatch,
 	applyWorkLogPatch,
+	applyProjectPatch,
 	createTaskFromInput,
+	createProjectFromInput,
 } from "./repository.js";
 
 const decodeTask = Schema.decodeUnknownSync(TaskSchema);
@@ -43,6 +52,9 @@ const decodeWorkLogCreateInput = Schema.decodeUnknownSync(
 	WorkLogCreateInputSchema,
 );
 const decodeWorkLogEntry = Schema.decodeUnknownSync(WorkLogEntrySchema);
+const decodeProject = Schema.decodeUnknownSync(ProjectSchema);
+const decodeProjectCreateInput = Schema.decodeUnknownSync(ProjectCreateInputSchema);
+const decodeProjectPatch = Schema.decodeUnknownSync(ProjectPatchSchema);
 
 const toErrorMessage = (error: unknown): string => {
 	if (error !== null && typeof error === "object" && "_tag" in error) {
@@ -104,6 +116,11 @@ const makeDbConfig = (options: ProseqlRepositoryOptions) =>
 			...(options.workLogFormat !== undefined
 				? { format: options.workLogFormat }
 				: {}),
+			relationships: {},
+		},
+		projects: {
+			schema: ProjectSchema,
+			file: join(dirname(options.tasksFile), "projects.yaml"),
 			relationships: {},
 		},
 	}) as const;
@@ -213,6 +230,44 @@ const makeProseqlRepository = (
 					db.workLog.delete(id).runPromise as Promise<WorkLogEntry>,
 				catch: (error) =>
 					`ProseqlRepository failed to delete work log entry ${id}: ${toErrorMessage(error)}`,
+			});
+
+		const collectProjects = (): Effect.Effect<Array<Project>, string> =>
+			Effect.tryPromise({
+				try: () =>
+					db.projects.query().runPromise.then((results: unknown[]) =>
+						results as Array<Project>,
+					),
+				catch: (error: unknown) =>
+					`ProseqlRepository.listProjects failed: ${toErrorMessage(error)}`,
+			});
+
+		const findProject = (id: string): Effect.Effect<Project, string> =>
+			Effect.tryPromise({
+				try: () => db.projects.findById(id).runPromise as Promise<Project>,
+				catch: (error) =>
+					`ProseqlRepository failed to read project ${id}: ${toErrorMessage(error)}`,
+			});
+
+		const saveProject = (project: Project): Effect.Effect<Project, string> =>
+			Effect.tryPromise({
+				try: () =>
+					db.projects
+						.upsert({
+							where: { id: project.id },
+							create: project,
+							update: project,
+						})
+						.runPromise.then((r: any) => r as Project),
+				catch: (error: unknown) =>
+					`ProseqlRepository failed to write project ${project.id}: ${toErrorMessage(error)}`,
+			});
+
+		const removeProject = (id: string): Effect.Effect<Project, string> =>
+			Effect.tryPromise({
+				try: () => db.projects.delete(id).runPromise as Promise<Project>,
+				catch: (error) =>
+					`ProseqlRepository failed to delete project ${id}: ${toErrorMessage(error)}`,
 			});
 
 		const writeDailyHighlight = (id: string): Effect.Effect<void, string> =>
@@ -441,6 +496,40 @@ const makeProseqlRepository = (
 				Effect.gen(function* () {
 					yield* saveWorkLogEntry(entry);
 					return entry;
+				}),
+
+			listProjects: (filters) =>
+				Effect.map(collectProjects(), (projects) =>
+					applyListProjectFilters(projects, filters),
+				),
+
+			getProject: (id) => findProject(id),
+
+			createProject: (input) =>
+				Effect.gen(function* () {
+					const created = createProjectFromInput(input);
+					yield* saveProject(created);
+					return created;
+				}),
+
+			updateProject: (id, patch) =>
+				Effect.gen(function* () {
+					const existing = yield* findProject(id);
+					const updated = applyProjectPatch(existing, patch);
+					yield* saveProject(updated);
+					return updated;
+				}),
+
+			deleteProject: (id) =>
+				Effect.gen(function* () {
+					yield* removeProject(id);
+					return { deleted: true } as const;
+				}),
+
+			importProject: (project) =>
+				Effect.gen(function* () {
+					yield* saveProject(project);
+					return project;
 				}),
 		};
 

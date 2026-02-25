@@ -7,8 +7,13 @@ import {
 	TaskRepository,
 	TaskRepositoryLive,
 	type ListTasksFilters,
+	type ListProjectsFilters,
 	type TaskRepositoryService,
 } from "@tashks/core/repository";
+import type {
+	ProjectCreateInput as ProjectCreateInputType,
+	ProjectPatch as ProjectPatchType,
+} from "@tashks/core/schema";
 import { ProseqlRepositoryLive } from "@tashks/core/proseql-repository";
 import {
 	applyPerspectiveToTasks,
@@ -110,6 +115,27 @@ export interface UpdateWorkLogCliOptionsInput {
 	readonly endedAt: Option.Option<string>;
 }
 
+export interface ListProjectsCliOptionsInput {
+	readonly status: Option.Option<string>;
+	readonly area: Option.Option<string>;
+}
+
+export interface CreateProjectCliOptionsInput {
+	readonly title: string;
+	readonly status: Option.Option<string>;
+	readonly area: Option.Option<string>;
+	readonly description: Option.Option<string>;
+	readonly tags: Option.Option<string>;
+}
+
+export interface UpdateProjectCliOptionsInput {
+	readonly title: Option.Option<string>;
+	readonly status: Option.Option<string>;
+	readonly area: Option.Option<string>;
+	readonly description: Option.Option<string>;
+	readonly tags: Option.Option<string>;
+}
+
 export type ListTasksExecute<R, E> = (
 	options: GlobalCliOptions,
 	filters: ListTasksFilters,
@@ -187,6 +213,42 @@ export type DeleteWorkLogExecute<R, E> = (
 export type MigrateExecute<R, E> = (
 	options: GlobalCliOptions,
 	fromDir: string,
+) => Effect.Effect<void, E, R>;
+
+export type ListProjectsExecute<R, E> = (
+	options: GlobalCliOptions,
+	filters: ListProjectsFilters,
+) => Effect.Effect<void, E, R>;
+
+export type GetProjectExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+) => Effect.Effect<void, E, R>;
+
+export type CreateProjectExecute<R, E> = (
+	options: GlobalCliOptions,
+	input: ProjectCreateInputType,
+) => Effect.Effect<void, E, R>;
+
+export type UpdateProjectExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+	patch: ProjectPatchType,
+) => Effect.Effect<void, E, R>;
+
+export type DeleteProjectExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+) => Effect.Effect<void, E, R>;
+
+export type ProjectTasksExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+) => Effect.Effect<void, E, R>;
+
+export type ProjectSummaryExecute<R, E> = (
+	options: GlobalCliOptions,
+	filters: ListProjectsFilters,
 ) => Effect.Effect<void, E, R>;
 
 export const defaultDataDir = (
@@ -381,6 +443,53 @@ export const resolveUpdateWorkLogPatch = (
 		...(taskId !== undefined ? { task_id: taskId } : {}),
 		...(startedAt !== undefined ? { started_at: startedAt } : {}),
 		...(endedAt !== undefined ? { ended_at: endedAt } : {}),
+	};
+};
+
+export const resolveListProjectFilters = (
+	options: ListProjectsCliOptionsInput,
+): ListProjectsFilters => {
+	const status = toUndefined(options.status);
+	const area = toUndefined(options.area);
+
+	return {
+		...(status !== undefined ? { status } : {}),
+		...(area !== undefined ? { area } : {}),
+	};
+};
+
+export const resolveCreateProjectInput = (
+	options: CreateProjectCliOptionsInput,
+): ProjectCreateInputType => {
+	const status = toUndefined(options.status) as ProjectCreateInputType["status"];
+	const area = toUndefined(options.area) as ProjectCreateInputType["area"];
+	const description = toUndefined(options.description);
+	const tags = parseTagFilter(options.tags);
+
+	return {
+		title: options.title,
+		...(status !== undefined ? { status } : {}),
+		...(area !== undefined ? { area } : {}),
+		...(description !== undefined ? { description } : {}),
+		...(tags !== undefined ? { tags } : {}),
+	};
+};
+
+export const resolveUpdateProjectPatch = (
+	options: UpdateProjectCliOptionsInput,
+): ProjectPatchType => {
+	const title = toUndefined(options.title);
+	const status = toUndefined(options.status) as ProjectPatchType["status"];
+	const area = toUndefined(options.area) as ProjectPatchType["area"];
+	const description = toUndefined(options.description);
+	const tags = parseTagFilter(options.tags);
+
+	return {
+		...(title !== undefined ? { title } : {}),
+		...(status !== undefined ? { status } : {}),
+		...(area !== undefined ? { area } : {}),
+		...(description !== undefined ? { description } : {}),
+		...(tags !== undefined ? { tags } : {}),
 	};
 };
 
@@ -989,6 +1098,263 @@ export const makeMigrateCommand = <R, E>(
 		),
 	);
 
+const projectStatusChoices = [
+	"active",
+	"on-hold",
+	"done",
+	"dropped",
+] as const;
+
+export const makeProjectListCommand = <R, E>(
+	execute: ListProjectsExecute<R, E>,
+) =>
+	Command.make(
+		"list",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			status: Options.choice("status", projectStatusChoices).pipe(
+				Options.withDescription("Filter by project status"),
+				Options.optional,
+			),
+			area: Options.choice("area", taskAreaChoices).pipe(
+				Options.withDescription("Filter by project area"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				const filters = resolveListProjectFilters(options);
+				yield* execute(globalOptions, filters);
+			}),
+	).pipe(Command.withDescription("List projects with optional filters"));
+
+export const makeProjectGetCommand = <R, E>(
+	execute: GetProjectExecute<R, E>,
+) =>
+	Command.make(
+		"get",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Project ID")),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("Get a project by id"));
+
+export const makeProjectCreateCommand = <R, E>(
+	execute: CreateProjectExecute<R, E>,
+) =>
+	Command.make(
+		"create",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			title: Options.text("title").pipe(Options.withDescription("Project title")),
+			status: Options.choice("status", projectStatusChoices).pipe(
+				Options.withDescription("Initial project status"),
+				Options.optional,
+			),
+			area: Options.choice("area", taskAreaChoices).pipe(
+				Options.withDescription("Project area"),
+				Options.optional,
+			),
+			description: Options.text("description").pipe(
+				Options.withDescription("Project description"),
+				Options.optional,
+			),
+			tags: Options.text("tags").pipe(
+				Options.withDescription("Comma-separated tags"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				const input = resolveCreateProjectInput(options);
+				yield* execute(globalOptions, input);
+			}),
+	).pipe(Command.withDescription("Create a project"));
+
+export const makeProjectUpdateCommand = <R, E>(
+	execute: UpdateProjectExecute<R, E>,
+) =>
+	Command.make(
+		"update",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Project ID")),
+			title: Options.text("title").pipe(
+				Options.withDescription("Updated project title"),
+				Options.optional,
+			),
+			status: Options.choice("status", projectStatusChoices).pipe(
+				Options.withDescription("Updated project status"),
+				Options.optional,
+			),
+			area: Options.choice("area", taskAreaChoices).pipe(
+				Options.withDescription("Updated project area"),
+				Options.optional,
+			),
+			description: Options.text("description").pipe(
+				Options.withDescription("Updated project description"),
+				Options.optional,
+			),
+			tags: Options.text("tags").pipe(
+				Options.withDescription("Updated comma-separated tags"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				const patch = resolveUpdateProjectPatch(options);
+				yield* execute(globalOptions, options.id, patch);
+			}),
+	).pipe(Command.withDescription("Update a project by id"));
+
+export const makeProjectDeleteCommand = <R, E>(
+	execute: DeleteProjectExecute<R, E>,
+) =>
+	Command.make(
+		"delete",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Project ID")),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("Delete a project by id"));
+
+export const makeProjectTasksCommand = <R, E>(
+	execute: ProjectTasksExecute<R, E>,
+) =>
+	Command.make(
+		"tasks",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Project ID")),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("List tasks belonging to a project"));
+
+export const makeProjectSummaryCommand = <R, E>(
+	execute: ProjectSummaryExecute<R, E>,
+) =>
+	Command.make(
+		"summary",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			status: Options.choice("status", projectStatusChoices).pipe(
+				Options.withDescription("Filter by project status"),
+				Options.optional,
+			),
+			area: Options.choice("area", taskAreaChoices).pipe(
+				Options.withDescription("Filter by project area"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				const filters = resolveListProjectFilters(options);
+				yield* execute(globalOptions, filters);
+			}),
+	).pipe(Command.withDescription("Show project summary with task counts"));
+
+export const makeProjectCommand = <R, E>(
+	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
+	executeList: ListProjectsExecute<R, E>,
+	executeGet: GetProjectExecute<R, E>,
+	executeCreate: CreateProjectExecute<R, E>,
+	executeUpdate: UpdateProjectExecute<R, E>,
+	executeDelete: DeleteProjectExecute<R, E>,
+	executeTasks: ProjectTasksExecute<R, E>,
+	executeSummary: ProjectSummaryExecute<R, E>,
+) =>
+	Command.make(
+		"project",
+		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
+		({ dataDir, tasksFile, worklogFile, pretty }) =>
+			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
+	).pipe(
+		Command.withDescription("Manage projects"),
+		Command.withSubcommands([
+			makeProjectListCommand(executeList),
+			makeProjectGetCommand(executeGet),
+			makeProjectCreateCommand(executeCreate),
+			makeProjectUpdateCommand(executeUpdate),
+			makeProjectDeleteCommand(executeDelete),
+			makeProjectTasksCommand(executeTasks),
+			makeProjectSummaryCommand(executeSummary),
+		]),
+	);
+
 export const makeWorkLogCommand = <R, E>(
 	execute: WorkLogExecute<R, E>,
 	executeList: ListWorkLogExecute<R, E>,
@@ -1029,6 +1395,14 @@ export const makeTasksCommand = <R, E>(
 	executeWorkLogUpdate: UpdateWorkLogExecute<R, E>,
 	executeWorkLogDelete: DeleteWorkLogExecute<R, E>,
 	executeMigrate: MigrateExecute<R, E>,
+	executeProject: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
+	executeProjectList: ListProjectsExecute<R, E>,
+	executeProjectGet: GetProjectExecute<R, E>,
+	executeProjectCreate: CreateProjectExecute<R, E>,
+	executeProjectUpdate: UpdateProjectExecute<R, E>,
+	executeProjectDelete: DeleteProjectExecute<R, E>,
+	executeProjectTasks: ProjectTasksExecute<R, E>,
+	executeProjectSummary: ProjectSummaryExecute<R, E>,
 ) =>
 	Command.make(
 		"tasks",
@@ -1058,6 +1432,16 @@ export const makeTasksCommand = <R, E>(
 				executeWorkLogDelete,
 			),
 			makeMigrateCommand(executeMigrate),
+			makeProjectCommand(
+				executeProject,
+				executeProjectList,
+				executeProjectGet,
+				executeProjectCreate,
+				executeProjectUpdate,
+				executeProjectDelete,
+				executeProjectTasks,
+				executeProjectSummary,
+			),
 		]),
 	);
 
@@ -1142,6 +1526,45 @@ const noopMigrateExecute = (
 	_fromDir: string,
 ): Effect.Effect<void> => Effect.void;
 
+const noopProjectExecute = (_options: GlobalCliOptions): Effect.Effect<void> =>
+	Effect.void;
+
+const noopProjectListExecute = (
+	_options: GlobalCliOptions,
+	_filters: ListProjectsFilters,
+): Effect.Effect<void> => Effect.void;
+
+const noopProjectGetExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopProjectCreateExecute = (
+	_options: GlobalCliOptions,
+	_input: ProjectCreateInputType,
+): Effect.Effect<void> => Effect.void;
+
+const noopProjectUpdateExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+	_patch: ProjectPatchType,
+): Effect.Effect<void> => Effect.void;
+
+const noopProjectDeleteExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopProjectTasksExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopProjectSummaryExecute = (
+	_options: GlobalCliOptions,
+	_filters: ListProjectsFilters,
+): Effect.Effect<void> => Effect.void;
+
 const defaultListExecute: ListTasksExecute<never, string> = (
 	options,
 	filters,
@@ -1172,6 +1595,20 @@ const defaultCreateExecute: CreateTaskExecute<never, string> = (
 	Effect.gen(function* () {
 		const repository = yield* TaskRepository;
 		const task = yield* repository.createTask(input);
+
+		if (task.project !== null) {
+			const projectExists = yield* Effect.catchAll(
+				Effect.map(repository.getProject(task.project), () => true),
+				() => Effect.succeed(false),
+			);
+			if (!projectExists) {
+				yield* Effect.sync(() => {
+					process.stderr.write(
+						`Warning: project "${task.project}" does not exist as a registered project\n`,
+					);
+				});
+			}
+		}
 
 		yield* Effect.sync(() => {
 			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
@@ -1326,6 +1763,148 @@ const defaultWorkLogDeleteExecute: DeleteWorkLogExecute<never, string> = (
 		});
 	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
+const defaultProjectListExecute: ListProjectsExecute<never, string> = (
+	options,
+	filters,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const projects = yield* repository.listProjects(filters);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(projects, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultProjectGetExecute: GetProjectExecute<never, string> = (
+	options,
+	id,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const project = yield* repository.getProject(id);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(project, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultProjectCreateExecute: CreateProjectExecute<never, string> = (
+	options,
+	input,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const project = yield* repository.createProject(input);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(project, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultProjectUpdateExecute: UpdateProjectExecute<never, string> = (
+	options,
+	id,
+	patch,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const project = yield* repository.updateProject(id, patch);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(project, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultProjectDeleteExecute: DeleteProjectExecute<never, string> = (
+	options,
+	id,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+
+		const referencingTasks = yield* repository.listTasks({ project: id });
+		if (referencingTasks.length > 0) {
+			yield* Effect.sync(() => {
+				process.stderr.write(
+					`Warning: ${referencingTasks.length} task(s) still reference project "${id}"\n`,
+				);
+			});
+		}
+
+		const result = yield* repository.deleteProject(id);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(result, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultProjectTasksExecute: ProjectTasksExecute<never, string> = (
+	options,
+	id,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const tasks = yield* repository.listTasks({ project: id });
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(tasks, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultProjectSummaryExecute: ProjectSummaryExecute<never, string> = (
+	options,
+	filters,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const projects = yield* repository.listProjects(filters);
+		const tasks = yield* repository.listTasks();
+
+		const summary = projects.map((project) => {
+			const projectTasks = tasks.filter((t) => t.project === project.id);
+			const statusCounts: Record<string, number> = {};
+			for (const t of projectTasks) {
+				statusCounts[t.status] = (statusCounts[t.status] ?? 0) + 1;
+			}
+			return {
+				id: project.id,
+				title: project.title,
+				status: project.status,
+				area: project.area,
+				task_count: projectTasks.length,
+				task_status_counts: statusCounts,
+			};
+		});
+
+		const unregisteredProjects = new Set<string>();
+		for (const task of tasks) {
+			if (
+				task.project !== null &&
+				!projects.some((p) => p.id === task.project)
+			) {
+				unregisteredProjects.add(task.project);
+			}
+		}
+
+		const result = {
+			projects: summary,
+			...(unregisteredProjects.size > 0
+				? { unregistered: Array.from(unregisteredProjects).sort() }
+				: {}),
+		};
+
+		if (unregisteredProjects.size > 0) {
+			process.stderr.write(
+				`Warning: ${unregisteredProjects.size} unregistered project(s) found in tasks: ${Array.from(unregisteredProjects).sort().join(", ")}\n`,
+			);
+		}
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(result, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
 const defaultMigrateExecute: MigrateExecute<never, string> = (
 	options,
 	fromDir,
@@ -1428,6 +2007,39 @@ export const makeCli = <R, E>(
 		R,
 		E
 	>,
+	executeProject: (
+		options: GlobalCliOptions,
+	) => Effect.Effect<void, E, R> = noopProjectExecute as (
+		options: GlobalCliOptions,
+	) => Effect.Effect<void, E, R>,
+	executeProjectList: ListProjectsExecute<
+		R,
+		E
+	> = noopProjectListExecute as ListProjectsExecute<R, E>,
+	executeProjectGet: GetProjectExecute<
+		R,
+		E
+	> = noopProjectGetExecute as GetProjectExecute<R, E>,
+	executeProjectCreate: CreateProjectExecute<
+		R,
+		E
+	> = noopProjectCreateExecute as CreateProjectExecute<R, E>,
+	executeProjectUpdate: UpdateProjectExecute<
+		R,
+		E
+	> = noopProjectUpdateExecute as UpdateProjectExecute<R, E>,
+	executeProjectDelete: DeleteProjectExecute<
+		R,
+		E
+	> = noopProjectDeleteExecute as DeleteProjectExecute<R, E>,
+	executeProjectTasks: ProjectTasksExecute<
+		R,
+		E
+	> = noopProjectTasksExecute as ProjectTasksExecute<R, E>,
+	executeProjectSummary: ProjectSummaryExecute<
+		R,
+		E
+	> = noopProjectSummaryExecute as ProjectSummaryExecute<R, E>,
 ) =>
 	Command.run(
 		makeTasksCommand(
@@ -1448,6 +2060,14 @@ export const makeCli = <R, E>(
 			executeWorkLogUpdate,
 			executeWorkLogDelete,
 			executeMigrate,
+			executeProject,
+			executeProjectList,
+			executeProjectGet,
+			executeProjectCreate,
+			executeProjectUpdate,
+			executeProjectDelete,
+			executeProjectTasks,
+			executeProjectSummary,
 		),
 		{
 			name: "Tashks CLI",
@@ -1473,6 +2093,14 @@ export const cli = makeCli(
 	defaultWorkLogUpdateExecute,
 	defaultWorkLogDeleteExecute,
 	defaultMigrateExecute,
+	noopProjectExecute,
+	defaultProjectListExecute,
+	defaultProjectGetExecute,
+	defaultProjectCreateExecute,
+	defaultProjectUpdateExecute,
+	defaultProjectDeleteExecute,
+	defaultProjectTasksExecute,
+	defaultProjectSummaryExecute,
 );
 
 export const runCli = (argv: ReadonlyArray<string> = process.argv) => cli(argv);

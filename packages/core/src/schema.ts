@@ -189,6 +189,41 @@ export const TaskPatch = Schema.Struct({
 });
 export type TaskPatch = Schema.Schema.Encoded<typeof TaskPatch>;
 
+export const ProjectStatus = Schema.Literal("active", "on-hold", "done", "dropped");
+export type ProjectStatus = Schema.Schema.Type<typeof ProjectStatus>;
+
+export const Project = Schema.Struct({
+	id: Schema.String,
+	title: Schema.String,
+	status: ProjectStatus,
+	area: TaskArea,
+	description: Schema.String,
+	tags: Schema.Array(Schema.String),
+	created: Schema.String,
+	updated: Schema.String,
+});
+export type Project = Schema.Schema.Type<typeof Project>;
+
+export const ProjectCreateInput = Schema.Struct({
+	title: Schema.String,
+	status: Schema.optionalWith(ProjectStatus, { default: () => "active" as const }),
+	area: Schema.optionalWith(TaskArea, { default: () => "personal" as const }),
+	description: Schema.optionalWith(Schema.String, { default: () => "" }),
+	tags: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] as string[] }),
+	created: Schema.optionalWith(Schema.String, { default: currentDateIso }),
+	updated: Schema.optionalWith(Schema.String, { default: currentDateIso }),
+});
+export type ProjectCreateInput = Schema.Schema.Encoded<typeof ProjectCreateInput>;
+
+export const ProjectPatch = Schema.Struct({
+	title: Schema.optionalWith(Schema.String, { exact: true }),
+	status: Schema.optionalWith(ProjectStatus, { exact: true }),
+	area: Schema.optionalWith(TaskArea, { exact: true }),
+	description: Schema.optionalWith(Schema.String, { exact: true }),
+	tags: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
+});
+export type ProjectPatch = Schema.Schema.Encoded<typeof ProjectPatch>;
+
 export const WorkLogEntry = Schema.Struct({
 	id: Schema.String,
 	task_id: Schema.String,

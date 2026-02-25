@@ -14,18 +14,22 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import YAML from "yaml";
-import type { Task, WorkLogEntry } from "./schema.js";
+import type { Task, WorkLogEntry, Project } from "./schema.js";
 import {
 	applyTaskPatch,
 	applyWorkLogPatch,
+	applyProjectPatch,
 	createTaskFromInput,
+	createProjectFromInput,
 	discoverHooksForEvent,
 	generateTaskId,
 	parseTaskRecord,
 	parseWorkLogRecord,
+	parseProjectRecord,
 	TaskRepository,
 	TaskRepositoryLive,
 	type ListTasksFilters,
+	type ListProjectsFilters,
 	type TaskRepositoryLiveOptions,
 	type TaskRepositoryService,
 	todayIso,
@@ -93,6 +97,12 @@ const makeRepositoryService = (
 	deleteWorkLogEntry: () => unexpectedCall(),
 	importTask: () => unexpectedCall(),
 	importWorkLogEntry: () => unexpectedCall(),
+	listProjects: () => Effect.succeed([]),
+	getProject: () => unexpectedCall(),
+	createProject: () => unexpectedCall(),
+	updateProject: () => unexpectedCall(),
+	deleteProject: () => unexpectedCall(),
+	importProject: () => unexpectedCall(),
 	...overrides,
 });
 
@@ -836,19 +846,25 @@ describe("TaskRepository service", () => {
 
 		expect(methodNames).toEqual([
 			"completeTask",
+			"createProject",
 			"createTask",
 			"createWorkLogEntry",
+			"deleteProject",
 			"deleteTask",
 			"deleteWorkLogEntry",
 			"generateNextRecurrence",
+			"getProject",
 			"getTask",
+			"importProject",
 			"importTask",
 			"importWorkLogEntry",
+			"listProjects",
 			"listStale",
 			"listTasks",
 			"listWorkLog",
 			"processDueRecurrences",
 			"setDailyHighlight",
+			"updateProject",
 			"updateTask",
 			"updateWorkLogEntry",
 		]);
@@ -1927,6 +1943,267 @@ exit 5
 				repository.listWorkLog(),
 			);
 			expect(entries).toEqual([]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+});
+
+const baseProject = (): Project => ({
+	id: "homelab-refresh",
+	title: "Homelab Refresh",
+	status: "active",
+	area: "infrastructure",
+	description: "Refresh the homelab infrastructure",
+	tags: ["hardware", "networking"],
+	created: "2026-02-16",
+	updated: "2026-02-20",
+});
+
+const writeProjectFiles = async (
+	dataDir: string,
+	projects: ReadonlyArray<Project>,
+): Promise<void> => {
+	const projectsDir = join(dataDir, "projects");
+	await mkdir(projectsDir, { recursive: true });
+	for (const project of projects) {
+		await writeFile(
+			join(projectsDir, `${project.id}.yaml`),
+			YAML.stringify(project),
+			"utf8",
+		);
+	}
+};
+
+describe("parseProjectRecord", () => {
+	it("returns a valid Project for a complete record", () => {
+		const record = baseProject();
+		const result = parseProjectRecord(record);
+		expect(result).toEqual(record);
+	});
+
+	it("returns null for an invalid record", () => {
+		const result = parseProjectRecord({ title: "Missing fields" });
+		expect(result).toBeNull();
+	});
+
+	it("returns null for non-object input", () => {
+		expect(parseProjectRecord("not an object")).toBeNull();
+		expect(parseProjectRecord(null)).toBeNull();
+		expect(parseProjectRecord(42)).toBeNull();
+	});
+});
+
+describe("createProjectFromInput", () => {
+	it("creates a project with defaults", () => {
+		const project = createProjectFromInput({ title: "New project" });
+		expect(project.title).toBe("New project");
+		expect(project.status).toBe("active");
+		expect(project.area).toBe("personal");
+		expect(project.description).toBe("");
+		expect(project.tags).toEqual([]);
+		expect(project.created).toMatch(isoDatePattern);
+		expect(project.updated).toMatch(isoDatePattern);
+		expect(project.id).toMatch(/^new-project-[a-z0-9]{6}$/);
+	});
+
+	it("creates a project with explicit fields", () => {
+		const project = createProjectFromInput({
+			title: "Homelab Refresh",
+			status: "on-hold",
+			area: "infrastructure",
+			description: "Refresh the homelab",
+			tags: ["hardware"],
+		});
+		expect(project.status).toBe("on-hold");
+		expect(project.area).toBe("infrastructure");
+		expect(project.description).toBe("Refresh the homelab");
+		expect(project.tags).toEqual(["hardware"]);
+	});
+});
+
+describe("applyProjectPatch", () => {
+	it("updates specified fields and sets updated date", () => {
+		const project = baseProject();
+		const patched = applyProjectPatch(project, { title: "Updated Title", status: "on-hold" });
+		expect(patched.title).toBe("Updated Title");
+		expect(patched.status).toBe("on-hold");
+		expect(patched.updated).toBe(todayIso());
+		expect(patched.area).toBe("infrastructure");
+		expect(patched.id).toBe("homelab-refresh");
+	});
+
+	it("does not change fields not in the patch", () => {
+		const project = baseProject();
+		const patched = applyProjectPatch(project, {});
+		expect(patched.title).toBe(project.title);
+		expect(patched.status).toBe(project.status);
+		expect(patched.area).toBe(project.area);
+		expect(patched.description).toBe(project.description);
+		expect(patched.tags).toEqual(project.tags);
+	});
+});
+
+describe("project CRUD via TaskRepositoryLive", () => {
+	it("round-trips create → get → list → update → delete", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-project-crud-"));
+		try {
+			const repo = Effect.provide(TaskRepository, TaskRepositoryLive({ dataDir }));
+
+			const created = await Effect.runPromise(
+				Effect.flatMap(repo, (r) =>
+					r.createProject({
+						title: "Test Project",
+						area: "infrastructure",
+						tags: ["test"],
+					}),
+				),
+			);
+
+			expect(created.title).toBe("Test Project");
+			expect(created.status).toBe("active");
+			expect(created.area).toBe("infrastructure");
+			expect(created.tags).toEqual(["test"]);
+			expect(created.id).toMatch(/^test-project-[a-z0-9]{6}$/);
+
+			const fetched = await Effect.runPromise(
+				Effect.flatMap(repo, (r) => r.getProject(created.id)),
+			);
+			expect(fetched).toEqual(created);
+
+			const listed = await Effect.runPromise(
+				Effect.flatMap(repo, (r) => r.listProjects()),
+			);
+			expect(listed).toHaveLength(1);
+			expect(listed[0]?.id).toBe(created.id);
+
+			const updated = await Effect.runPromise(
+				Effect.flatMap(repo, (r) =>
+					r.updateProject(created.id, { status: "on-hold", description: "Updated" }),
+				),
+			);
+			expect(updated.status).toBe("on-hold");
+			expect(updated.description).toBe("Updated");
+			expect(updated.updated).toBe(todayIso());
+
+			const deleteResult = await Effect.runPromise(
+				Effect.flatMap(repo, (r) => r.deleteProject(created.id)),
+			);
+			expect(deleteResult).toEqual({ deleted: true });
+
+			const listedAfterDelete = await Effect.runPromise(
+				Effect.flatMap(repo, (r) => r.listProjects()),
+			);
+			expect(listedAfterDelete).toEqual([]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("listProjects filters by status", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-project-filter-"));
+		try {
+			const active = { ...baseProject(), id: "proj-active", status: "active" as const };
+			const onHold = { ...baseProject(), id: "proj-hold", status: "on-hold" as const, title: "On Hold" };
+			await writeProjectFiles(dataDir, [active, onHold]);
+
+			const repo = Effect.provide(TaskRepository, TaskRepositoryLive({ dataDir }));
+
+			const activeOnly = await Effect.runPromise(
+				Effect.flatMap(repo, (r) => r.listProjects({ status: "active" })),
+			);
+			expect(activeOnly).toHaveLength(1);
+			expect(activeOnly[0]?.id).toBe("proj-active");
+
+			const onHoldOnly = await Effect.runPromise(
+				Effect.flatMap(repo, (r) => r.listProjects({ status: "on-hold" })),
+			);
+			expect(onHoldOnly).toHaveLength(1);
+			expect(onHoldOnly[0]?.id).toBe("proj-hold");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("listProjects filters by area", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-project-area-"));
+		try {
+			const infra = { ...baseProject(), id: "proj-infra", area: "infrastructure" as const };
+			const work = { ...baseProject(), id: "proj-work", area: "work" as const, title: "Work Project" };
+			await writeProjectFiles(dataDir, [infra, work]);
+
+			const repo = Effect.provide(TaskRepository, TaskRepositoryLive({ dataDir }));
+
+			const infraOnly = await Effect.runPromise(
+				Effect.flatMap(repo, (r) => r.listProjects({ area: "infrastructure" })),
+			);
+			expect(infraOnly).toHaveLength(1);
+			expect(infraOnly[0]?.id).toBe("proj-infra");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("getProject fails for nonexistent project", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-project-notfound-"));
+		try {
+			const repo = Effect.provide(TaskRepository, TaskRepositoryLive({ dataDir }));
+
+			const exit = await Effect.runPromiseExit(
+				Effect.flatMap(repo, (r) => r.getProject("nonexistent")),
+			);
+
+			expect(Exit.isFailure(exit)).toBe(true);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("updateProject fails for nonexistent project", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-project-update-notfound-"));
+		try {
+			const repo = Effect.provide(TaskRepository, TaskRepositoryLive({ dataDir }));
+
+			const exit = await Effect.runPromiseExit(
+				Effect.flatMap(repo, (r) => r.updateProject("nonexistent", { title: "New" })),
+			);
+
+			expect(Exit.isFailure(exit)).toBe(true);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("deleteProject fails for nonexistent project", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-project-delete-notfound-"));
+		try {
+			const repo = Effect.provide(TaskRepository, TaskRepositoryLive({ dataDir }));
+
+			const exit = await Effect.runPromiseExit(
+				Effect.flatMap(repo, (r) => r.deleteProject("nonexistent")),
+			);
+
+			expect(Exit.isFailure(exit)).toBe(true);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("importProject writes a project that can be retrieved", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-project-import-"));
+		try {
+			const project = baseProject();
+			const repo = Effect.provide(TaskRepository, TaskRepositoryLive({ dataDir }));
+
+			const imported = await Effect.runPromise(
+				Effect.flatMap(repo, (r) => r.importProject(project)),
+			);
+			expect(imported).toEqual(project);
+
+			const fetched = await Effect.runPromise(
+				Effect.flatMap(repo, (r) => r.getProject(project.id)),
+			);
+			expect(fetched).toEqual(project);
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}

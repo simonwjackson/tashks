@@ -12,11 +12,14 @@ import {
 	makeCli,
 	resolveCreateTaskInput,
 	resolveCreateWorkLogInput,
+	resolveCreateProjectInput,
 	resolveGlobalCliOptions,
 	resolveListTaskFilters,
 	resolveListWorkLogFilters,
+	resolveListProjectFilters,
 	resolveUpdateTaskPatch,
 	resolveUpdateWorkLogPatch,
+	resolveUpdateProjectPatch,
 	type GlobalCliOptions,
 } from "./cli.js";
 
@@ -1211,6 +1214,633 @@ describe("cli smoke", () => {
 			expect(deleted).toEqual({ deleted: true });
 
 			const listedAfterDelete = (await runDefaultCliJson([
+				"list",
+				"--data-dir",
+				dataDir,
+			])) as Array<unknown>;
+
+			expect(listedAfterDelete).toEqual([]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("project filter resolution", () => {
+	it("maps all project list options to filter fields", () => {
+		const filters = resolveListProjectFilters({
+			status: Option.some("active"),
+			area: Option.some("infrastructure"),
+		});
+
+		expect(filters).toEqual({
+			status: "active",
+			area: "infrastructure",
+		});
+	});
+
+	it("omits unset project list filters", () => {
+		const filters = resolveListProjectFilters({
+			status: Option.none(),
+			area: Option.none(),
+		});
+
+		expect(filters).toEqual({});
+	});
+});
+
+describe("project create input resolution", () => {
+	it("maps all create options to project create input fields", () => {
+		const input = resolveCreateProjectInput({
+			title: "Homelab Refresh",
+			status: Option.some("on-hold"),
+			area: Option.some("infrastructure"),
+			description: Option.some("Refresh the homelab"),
+			tags: Option.some("hardware, networking"),
+		});
+
+		expect(input).toEqual({
+			title: "Homelab Refresh",
+			status: "on-hold",
+			area: "infrastructure",
+			description: "Refresh the homelab",
+			tags: ["hardware", "networking"],
+		});
+	});
+
+	it("omits unset create options and empty tags", () => {
+		const input = resolveCreateProjectInput({
+			title: "Minimal Project",
+			status: Option.none(),
+			area: Option.none(),
+			description: Option.none(),
+			tags: Option.some(" , , "),
+		});
+
+		expect(input).toEqual({
+			title: "Minimal Project",
+		});
+	});
+});
+
+describe("project update patch resolution", () => {
+	it("maps all update options to project patch fields", () => {
+		const patch = resolveUpdateProjectPatch({
+			title: Option.some("Updated Title"),
+			status: Option.some("done"),
+			area: Option.some("work"),
+			description: Option.some("Updated desc"),
+			tags: Option.some("tag1, tag2"),
+		});
+
+		expect(patch).toEqual({
+			title: "Updated Title",
+			status: "done",
+			area: "work",
+			description: "Updated desc",
+			tags: ["tag1", "tag2"],
+		});
+	});
+
+	it("omits unset update options and empty tags", () => {
+		const patch = resolveUpdateProjectPatch({
+			title: Option.none(),
+			status: Option.none(),
+			area: Option.none(),
+			description: Option.none(),
+			tags: Option.some(" , , "),
+		});
+
+		expect(patch).toEqual({});
+	});
+});
+
+describe("project cli parsing", () => {
+	it("parses `project list` with filter flags", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly filters: ReturnType<typeof resolveListProjectFilters>;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _name) => Effect.void,
+			(_options) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _fromDir) => Effect.void,
+			(_options) => Effect.void,
+			(options, filters) =>
+				Effect.sync(() => {
+					captured.push({ options, filters });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"project",
+				"list",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--status",
+				"active",
+				"--area",
+				"infrastructure",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
+					pretty: false,
+				},
+				filters: {
+					status: "active",
+					area: "infrastructure",
+				},
+			},
+		]);
+	});
+
+	it("parses `project get --id ID`", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly id: string;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _name) => Effect.void,
+			(_options) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _fromDir) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(options, id) =>
+				Effect.sync(() => {
+					captured.push({ options, id });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"project",
+				"get",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--id",
+				"homelab-refresh",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
+					pretty: false,
+				},
+				id: "homelab-refresh",
+			},
+		]);
+	});
+
+	it("parses `project create --title ...`", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly input: ReturnType<typeof resolveCreateProjectInput>;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _name) => Effect.void,
+			(_options) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _fromDir) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(options, input) =>
+				Effect.sync(() => {
+					captured.push({ options, input });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"project",
+				"create",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--title",
+				"Homelab Refresh",
+				"--status",
+				"active",
+				"--area",
+				"infrastructure",
+				"--description",
+				"Refresh the homelab",
+				"--tags",
+				"hardware,networking",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
+					pretty: false,
+				},
+				input: {
+					title: "Homelab Refresh",
+					status: "active",
+					area: "infrastructure",
+					description: "Refresh the homelab",
+					tags: ["hardware", "networking"],
+				},
+			},
+		]);
+	});
+
+	it("parses `project update --id ID` with patch flags", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly id: string;
+			readonly patch: ReturnType<typeof resolveUpdateProjectPatch>;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _name) => Effect.void,
+			(_options) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _fromDir) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(options, id, patch) =>
+				Effect.sync(() => {
+					captured.push({ options, id, patch });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"project",
+				"update",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--id",
+				"homelab-refresh",
+				"--status",
+				"on-hold",
+				"--title",
+				"Updated Title",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
+					pretty: false,
+				},
+				id: "homelab-refresh",
+				patch: {
+					status: "on-hold",
+					title: "Updated Title",
+				},
+			},
+		]);
+	});
+
+	it("parses `project delete --id ID`", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly id: string;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _name) => Effect.void,
+			(_options) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _fromDir) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(options, id) =>
+				Effect.sync(() => {
+					captured.push({ options, id });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"project",
+				"delete",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--id",
+				"homelab-refresh",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
+					pretty: false,
+				},
+				id: "homelab-refresh",
+			},
+		]);
+	});
+
+	it("parses `project tasks --id ID`", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly id: string;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _name) => Effect.void,
+			(_options) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _fromDir) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(options, id) =>
+				Effect.sync(() => {
+					captured.push({ options, id });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"project",
+				"tasks",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--id",
+				"homelab-refresh",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
+					pretty: false,
+				},
+				id: "homelab-refresh",
+			},
+		]);
+	});
+
+	it("parses `project summary` with filter flags", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly filters: ReturnType<typeof resolveListProjectFilters>;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _name) => Effect.void,
+			(_options) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _fromDir) => Effect.void,
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(options, filters) =>
+				Effect.sync(() => {
+					captured.push({ options, filters });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"project",
+				"summary",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--status",
+				"active",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					tasksFile: "/tmp/tasks-data/tasks.yaml",
+					worklogFile: "/tmp/tasks-data/work-log.yaml",
+					pretty: false,
+				},
+				filters: {
+					status: "active",
+				},
+			},
+		]);
+	});
+});
+
+describe("project cli smoke", () => {
+	it("round-trips project create/get/list/update/delete", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-project-cli-smoke-"));
+
+		try {
+			const created = (await runDefaultCliJson([
+				"project",
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Homelab Refresh",
+				"--area",
+				"infrastructure",
+				"--tags",
+				"hardware,networking",
+				"--description",
+				"Refresh the homelab infrastructure",
+			])) as Record<string, unknown>;
+
+			expect(created.title).toBe("Homelab Refresh");
+			expect(created.area).toBe("infrastructure");
+			expect(created.status).toBe("active");
+			expect(created.tags).toEqual(["hardware", "networking"]);
+			expect(created.description).toBe("Refresh the homelab infrastructure");
+			expect(created.id).toMatch(/^homelab-refresh-[a-z0-9]{6}$/);
+
+			const id = created.id as string;
+
+			const fetched = (await runDefaultCliJson([
+				"project",
+				"get",
+				"--data-dir",
+				dataDir,
+				"--id",
+				id,
+			])) as Record<string, unknown>;
+
+			expect(fetched.id).toBe(id);
+			expect(fetched.title).toBe("Homelab Refresh");
+
+			const listed = (await runDefaultCliJson([
+				"project",
+				"list",
+				"--data-dir",
+				dataDir,
+			])) as Array<Record<string, unknown>>;
+
+			expect(listed).toHaveLength(1);
+			expect(listed[0]?.id).toBe(id);
+
+			const updated = (await runDefaultCliJson([
+				"project",
+				"update",
+				"--data-dir",
+				dataDir,
+				"--id",
+				id,
+				"--status",
+				"on-hold",
+				"--description",
+				"Paused for now",
+			])) as Record<string, unknown>;
+
+			expect(updated.id).toBe(id);
+			expect(updated.status).toBe("on-hold");
+			expect(updated.description).toBe("Paused for now");
+
+			const deleted = (await runDefaultCliJson([
+				"project",
+				"delete",
+				"--data-dir",
+				dataDir,
+				"--id",
+				id,
+			])) as Record<string, unknown>;
+
+			expect(deleted).toEqual({ deleted: true });
+
+			const listedAfterDelete = (await runDefaultCliJson([
+				"project",
 				"list",
 				"--data-dir",
 				dataDir,
