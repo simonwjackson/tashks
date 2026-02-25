@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { Frequency, RRule, rrulestr } from "rrule";
+import pkg from "rrule";
+const { Frequency, RRule, rrulestr } = pkg;
 import { Task as TaskSchema, type Task } from "./schema.js";
 import { generateTaskId } from "./id.js";
 
@@ -15,7 +16,7 @@ export interface CompletionRecurrenceInterval {
 }
 
 const completionRecurrenceFrequencies = new Map<
-	Frequency,
+	typeof Frequency[keyof typeof Frequency],
 	CompletionRecurrenceInterval["frequency"]
 >([
 	[Frequency.DAILY, "DAILY"],
