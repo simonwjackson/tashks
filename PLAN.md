@@ -87,4 +87,4 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] `tasks perspective <name>` and `tasks perspectives` — *needs:* Phase 6
 - [x] `tasks recurrence-check` — *needs:* Phase 5
 - [x] Worklog subcommands: list, create, update, delete — *needs:* Phase 4
-- [ ] CLI smoke tests (round-trip create/get/list/update/delete)
+- [x] CLI smoke tests (round-trip create/get/list/update/delete)
