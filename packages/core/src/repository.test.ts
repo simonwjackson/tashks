@@ -157,6 +157,15 @@ const writeWorkLogFiles = async (
 	);
 };
 
+const writeRawYamlFile = async (
+	directory: string,
+	fileName: string,
+	source: string,
+): Promise<void> => {
+	await mkdir(directory, { recursive: true });
+	await writeFile(join(directory, fileName), source, "utf8");
+};
+
 describe("repository pure helpers", () => {
 	it("generateTaskId slugifies title and appends a six character suffix", () => {
 		const id = generateTaskId(" Repair   ARRAY!!! ");
@@ -441,6 +450,169 @@ describe("TaskRepository listTasks", () => {
 			});
 
 			expect(result.map((task) => task.id)).toEqual(["match-task"]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("TaskRepository integration with literal YAML files", () => {
+	it("decodes hand-written task YAML files and supports .yaml/.yml extensions", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-literal-task-yaml-"));
+		try {
+			await writeRawYamlFile(
+				join(dataDir, "tasks"),
+				"literal-primary.yaml",
+				`id: literal-primary
+title: Literal primary
+status: active
+area: code
+project: tasks
+tags:
+  - yaml
+  - literal
+created: '2026-02-20'
+updated: '2026-02-26'
+urgency: high
+energy: low
+due: 2026-03-01
+context: |
+  Investigate parser behavior from sample files.
+  Keep YAML formatting realistic.
+subtasks:
+  - text: Capture fixture
+    done: true
+  - text: Verify list sorting
+    done: false
+blocked_by: []
+estimated_minutes: 30
+actual_minutes: null
+completed_at: null
+last_surfaced: 2026-02-25
+defer_until: null
+nudge_count: 1
+recurrence: FREQ=WEEKLY;BYDAY=MO
+recurrence_trigger: clock
+recurrence_strategy: replace
+recurrence_last_generated: 2026-02-24T08:00:00Z
+`,
+			);
+
+			await writeRawYamlFile(
+				join(dataDir, "tasks"),
+				"literal-secondary.yml",
+				`id: literal-secondary
+title: Literal secondary
+status: active
+area: code
+project: null
+tags: []
+created: '2026-02-20'
+updated: '2026-02-25'
+urgency: medium
+energy: medium
+due: null
+context: ''
+subtasks: []
+blocked_by:
+  - literal-primary
+estimated_minutes: null
+actual_minutes: null
+completed_at: null
+last_surfaced: null
+defer_until: null
+nudge_count: 0
+recurrence: null
+recurrence_trigger: completion
+recurrence_strategy: accumulate
+recurrence_last_generated: null
+`,
+			);
+
+			const listed = await runListTasks(dataDir);
+			expect(listed.map((task) => task.id)).toEqual([
+				"literal-primary",
+				"literal-secondary",
+			]);
+			expect(listed[0]).toMatchObject({
+				id: "literal-primary",
+				area: "code",
+				project: "tasks",
+				tags: ["yaml", "literal"],
+				due: "2026-03-01",
+				subtasks: [
+					{ text: "Capture fixture", done: true },
+					{ text: "Verify list sorting", done: false },
+				],
+			});
+
+			const fetched = await runRepository(dataDir, (repository) =>
+				repository.getTask("literal-secondary"),
+			);
+			expect(fetched).toMatchObject({
+				id: "literal-secondary",
+				project: null,
+				blocked_by: ["literal-primary"],
+				recurrence_trigger: "completion",
+				recurrence_strategy: "accumulate",
+			});
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("decodes hand-written work log YAML files and applies date filtering", async () => {
+		const dataDir = await mkdtemp(
+			join(tmpdir(), "tasks-literal-worklog-yaml-"),
+		);
+		try {
+			await writeRawYamlFile(
+				join(dataDir, "work-log"),
+				"literal-primary-20260226T0900.yaml",
+				`id: literal-primary-20260226T0900
+task_id: literal-primary
+started_at: 2026-02-26T09:00:00Z
+ended_at: 2026-02-26T10:15:00Z
+date: 2026-02-26
+`,
+			);
+
+			await writeRawYamlFile(
+				join(dataDir, "work-log"),
+				"literal-primary-20260225T0900.yml",
+				`id: literal-primary-20260225T0900
+task_id: literal-primary
+started_at: 2026-02-25T09:00:00Z
+ended_at: null
+date: 2026-02-25
+`,
+			);
+
+			const listed = await runRepository(dataDir, (repository) =>
+				repository.listWorkLog(),
+			);
+			expect(listed.map((entry) => entry.id)).toEqual([
+				"literal-primary-20260226T0900",
+				"literal-primary-20260225T0900",
+			]);
+			expect(listed[0]).toMatchObject({
+				task_id: "literal-primary",
+				date: "2026-02-26",
+				ended_at: "2026-02-26T10:15:00Z",
+			});
+
+			const filtered = await runRepository(dataDir, (repository) =>
+				repository.listWorkLog({ date: "2026-02-25" }),
+			);
+			expect(filtered).toEqual([
+				{
+					id: "literal-primary-20260225T0900",
+					task_id: "literal-primary",
+					started_at: "2026-02-25T09:00:00Z",
+					ended_at: null,
+					date: "2026-02-25",
+				},
+			]);
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}
