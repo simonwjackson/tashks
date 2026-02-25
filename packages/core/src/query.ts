@@ -1,4 +1,16 @@
-import type { Task, TaskEnergy } from "./schema.js";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import * as Effect from "effect/Effect";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
+import YAML from "yaml";
+import {
+	TaskArea as TaskAreaSchema,
+	TaskEnergy as TaskEnergySchema,
+	TaskStatus as TaskStatusSchema,
+	type Task,
+	type TaskEnergy,
+} from "./schema.js";
 
 const addDays = (date: string, days: number): string => {
 	const next = new Date(`${date}T00:00:00.000Z`);
@@ -23,6 +35,12 @@ const completionDate = (task: Task): string | null => {
 
 	return parsed.toISOString().slice(0, 10);
 };
+
+const perspectiveConfigFilePath = (dataDir: string): string =>
+	join(dataDir, "perspectives.yaml");
+
+const toErrorMessage = (error: unknown): string =>
+	error instanceof Error ? error.message : String(error);
 
 export const isBlocked = (task: Task, allTasks: Task[]): boolean => {
 	if (task.blocked_by.length === 0) {
@@ -140,4 +158,75 @@ export const byUpdatedDescThenTitle = (a: Task, b: Task): number => {
 	return a.title.localeCompare(b.title);
 };
 
-// TODO: Perspective loader — read perspectives.yaml and apply filters/sorts
+export const PerspectiveFilters = Schema.Struct({
+	status: Schema.optionalWith(TaskStatusSchema, { exact: true }),
+	area: Schema.optionalWith(TaskAreaSchema, { exact: true }),
+	project: Schema.optionalWith(Schema.String, { exact: true }),
+	tags: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
+	due_before: Schema.optionalWith(Schema.String, { exact: true }),
+	due_after: Schema.optionalWith(Schema.String, { exact: true }),
+	unblocked_only: Schema.optionalWith(Schema.Boolean, { exact: true }),
+	energy: Schema.optionalWith(TaskEnergySchema, { exact: true }),
+	stale_days: Schema.optionalWith(Schema.Number, { exact: true }),
+	completed_on: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type PerspectiveFilters = Schema.Schema.Type<typeof PerspectiveFilters>;
+
+export const PerspectiveSort = Schema.String;
+export type PerspectiveSort = Schema.Schema.Type<typeof PerspectiveSort>;
+
+export const Perspective = Schema.Struct({
+	filters: PerspectiveFilters,
+	sort: Schema.optionalWith(PerspectiveSort, { exact: true }),
+});
+export type Perspective = Schema.Schema.Type<typeof Perspective>;
+
+export const PerspectiveConfig = Schema.Record({
+	key: Schema.String,
+	value: Perspective,
+});
+export type PerspectiveConfig = Schema.Schema.Type<typeof PerspectiveConfig>;
+
+const decodePerspectiveConfigEither =
+	Schema.decodeUnknownEither(PerspectiveConfig);
+
+export const parsePerspectiveConfig = (
+	record: unknown,
+): PerspectiveConfig | null => {
+	const result = decodePerspectiveConfigEither(record);
+	return Either.isRight(result) ? result.right : null;
+};
+
+export const loadPerspectiveConfig = (
+	dataDir: string,
+): Effect.Effect<PerspectiveConfig, string> =>
+	Effect.tryPromise({
+		try: async () => {
+			const path = perspectiveConfigFilePath(dataDir);
+			const source = await readFile(path, "utf8").catch((error: unknown) => {
+				if (
+					error !== null &&
+					typeof error === "object" &&
+					"code" in error &&
+					error.code === "ENOENT"
+				) {
+					return null;
+				}
+				throw error;
+			});
+
+			if (source === null || source.trim().length === 0) {
+				return {};
+			}
+
+			const parsed = YAML.parse(source);
+			const config = parsePerspectiveConfig(parsed);
+			if (config === null) {
+				throw new Error(`Invalid perspective config in ${path}`);
+			}
+
+			return config;
+		},
+		catch: (error) =>
+			`Perspective config loader failed: ${toErrorMessage(error)}`,
+	});

@@ -1,4 +1,11 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import type { Task } from "./schema.js";
 import {
 	byCreatedAsc,
@@ -14,6 +21,7 @@ import {
 	isDueBefore,
 	isDueThisWeek,
 	isUnblocked,
+	loadPerspectiveConfig,
 	wasCompletedBetween,
 	wasCompletedOn,
 } from "./query.js";
@@ -46,6 +54,14 @@ const makeTask = (
 	recurrence_strategy: overrides.recurrence_strategy ?? "replace",
 	recurrence_last_generated: overrides.recurrence_last_generated ?? null,
 });
+
+const writePerspectiveConfig = async (
+	dataDir: string,
+	source: string,
+): Promise<void> => {
+	await mkdir(dataDir, { recursive: true });
+	await writeFile(join(dataDir, "perspectives.yaml"), source, "utf8");
+};
 
 describe("query dependency predicates", () => {
 	it("isBlocked returns true when any blocker exists and is not done", () => {
@@ -434,5 +450,89 @@ describe("query sort helpers", () => {
 			byUpdatedDescThenTitle,
 		);
 		expect(sorted.map((task) => task.id)).toEqual(["newest", "alpha", "beta"]);
+	});
+});
+
+describe("perspective config loader", () => {
+	it("loads perspective config from perspectives.yaml", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-perspectives-"));
+
+		try {
+			await writePerspectiveConfig(
+				dataDir,
+				[
+					"quick-wins:",
+					"  filters:",
+					"    status: active",
+					"    energy: low",
+					"    unblocked_only: true",
+					"  sort: updated_desc",
+					"due-this-week:",
+					"  filters:",
+					"    status: active",
+					"    due_before: '+7d'",
+					"  sort: due_asc",
+				].join("\n"),
+			);
+
+			const config = await Effect.runPromise(loadPerspectiveConfig(dataDir));
+			expect(config).toEqual({
+				"due-this-week": {
+					filters: {
+						due_before: "+7d",
+						status: "active",
+					},
+					sort: "due_asc",
+				},
+				"quick-wins": {
+					filters: {
+						energy: "low",
+						status: "active",
+						unblocked_only: true,
+					},
+					sort: "updated_desc",
+				},
+			});
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("returns an empty config when perspectives.yaml does not exist", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-perspectives-empty-"));
+
+		try {
+			const config = await Effect.runPromise(loadPerspectiveConfig(dataDir));
+			expect(config).toEqual({});
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("fails when perspective config does not match the schema", async () => {
+		const dataDir = await mkdtemp(
+			join(tmpdir(), "tasks-perspectives-invalid-"),
+		);
+
+		try {
+			await writePerspectiveConfig(
+				dataDir,
+				["broken-perspective:", "  filters:", "    status: maybe"].join("\n"),
+			);
+
+			const result = await Effect.runPromiseExit(
+				loadPerspectiveConfig(dataDir),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+
+			if (Exit.isFailure(result)) {
+				const failure = Option.getOrNull(Cause.failureOption(result.cause));
+				expect(failure).toBe(
+					`Perspective config loader failed: Invalid perspective config in ${join(dataDir, "perspectives.yaml")}`,
+				);
+			}
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
 	});
 });
