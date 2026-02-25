@@ -70,7 +70,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 
 - [x] Hook discovery (scan hook directory for executables) — *needs:* Phase 4
 - [x] Mutating hooks (`on-create`, `on-modify`) — stdin/stdout JSON, abort on non-zero — *needs:* Phase 4
-- [ ] Non-mutating hooks (`on-complete`, `on-delete`) — fire-and-forget — *needs:* Phase 4
+- [x] Non-mutating hooks (`on-complete`, `on-delete`) — fire-and-forget — *needs:* Phase 4
 - [ ] Environment variables: `TASKS_EVENT`, `TASKS_ID`, `TASKS_DATA_DIR` — *needs:* Phase 4
 - [ ] Add tests for hook execution
 
