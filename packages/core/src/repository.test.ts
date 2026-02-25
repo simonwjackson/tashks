@@ -93,6 +93,12 @@ const runListTasks = (
 		}).pipe(Effect.provide(TaskRepositoryLive({ dataDir }))),
 	);
 
+const addDaysToIsoDate = (date: string, days: number): string => {
+	const next = new Date(`${date}T00:00:00.000Z`);
+	next.setUTCDate(next.getUTCDate() + days);
+	return next.toISOString().slice(0, 10);
+};
+
 const runRepository = <A>(
 	dataDir: string,
 	run: (repository: TaskRepositoryService) => Effect.Effect<A, string>,
@@ -424,6 +430,63 @@ describe("TaskRepository listTasks", () => {
 });
 
 describe("TaskRepository service", () => {
+	it("listStale returns only active tasks staler than the requested threshold", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-list-stale-"));
+		try {
+			const today = todayIso();
+			const staleOld = addDaysToIsoDate(today, -30);
+			const staleLessOld = addDaysToIsoDate(today, -20);
+			const atBoundary = addDaysToIsoDate(today, -14);
+
+			const tasks: Array<Task> = [
+				{
+					...baseTask(),
+					id: "stale-a",
+					title: "Stale A",
+					status: "active",
+					updated: staleOld,
+				},
+				{
+					...baseTask(),
+					id: "stale-b",
+					title: "Stale B",
+					status: "active",
+					updated: staleLessOld,
+				},
+				{
+					...baseTask(),
+					id: "boundary",
+					title: "Boundary",
+					status: "active",
+					updated: atBoundary,
+				},
+				{
+					...baseTask(),
+					id: "fresh",
+					title: "Fresh",
+					status: "active",
+					updated: today,
+				},
+				{
+					...baseTask(),
+					id: "done-stale",
+					title: "Done stale",
+					status: "done",
+					updated: staleOld,
+				},
+			];
+			await writeTaskFiles(dataDir, tasks);
+
+			const result = await runRepository(dataDir, (repository) =>
+				repository.listStale(14),
+			);
+
+			expect(result.map((task) => task.id)).toEqual(["stale-b", "stale-a"]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
 	it("supports dependency injection via TaskRepository tag", async () => {
 		const service = makeRepositoryService({
 			listTasks: () => Effect.succeed([baseTask()]),

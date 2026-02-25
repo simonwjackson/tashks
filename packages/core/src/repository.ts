@@ -20,7 +20,12 @@ import {
 	type WorkLogEntry,
 	type WorkLogPatch,
 } from "./schema.js";
-import { byUpdatedDescThenTitle, isDueBefore, isUnblocked } from "./query.js";
+import {
+	byUpdatedDescThenTitle,
+	isDueBefore,
+	isStalerThan,
+	isUnblocked,
+} from "./query.js";
 
 const idSuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
 const idSuffixLength = 6;
@@ -367,7 +372,13 @@ const makeTaskRepositoryLive = (
 				yield* writeDailyHighlightToDisk(dataDir, id);
 				return existing.task;
 			}),
-		listStale: () => notImplemented("listStale", dataDir),
+		listStale: (days) =>
+			Effect.map(readTasksFromDisk(dataDir), (tasks) => {
+				const stalePredicate = isStalerThan(days, todayIso());
+				return tasks
+					.filter((task) => task.status === "active" && stalePredicate(task))
+					.sort(byUpdatedDescThenTitle);
+			}),
 		listWorkLog: () => notImplemented("listWorkLog", dataDir),
 		createWorkLogEntry: () => notImplemented("createWorkLogEntry", dataDir),
 		updateWorkLogEntry: () => notImplemented("updateWorkLogEntry", dataDir),
