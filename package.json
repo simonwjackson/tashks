@@ -1,0 +1,23 @@
+{
+  "name": "tasks",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "cli": "bun run src/tasks/cli.ts"
+  },
+  "dependencies": {
+    "effect": "^3",
+    "@effect/platform": "^0.77",
+    "@effect/platform-node": "^0.72",
+    "@effect/cli": "^0.54",
+    "yaml": "^2",
+    "rrule": "^2"
+  },
+  "devDependencies": {
+    "@types/bun": "^1",
+    "typescript": "^5",
+    "@biomejs/biome": "^1"
+  }
+}
