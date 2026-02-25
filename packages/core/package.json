@@ -1,7 +1,35 @@
 {
-	"name": "@tasks/core",
+	"name": "@tashks/core",
 	"version": "0.1.0",
 	"type": "module",
+	"description": "Personal task management library — YAML files on disk, Effect ecosystem",
+	"main": "dist/src/repository.js",
+	"types": "dist/src/repository.d.ts",
+	"exports": {
+		"./schema": {
+			"types": "./dist/src/schema.d.ts",
+			"import": "./dist/src/schema.js"
+		},
+		"./repository": {
+			"types": "./dist/src/repository.d.ts",
+			"import": "./dist/src/repository.js"
+		},
+		"./query": {
+			"types": "./dist/src/query.d.ts",
+			"import": "./dist/src/query.js"
+		}
+	},
+	"files": ["dist", "LICENSE"],
+	"license": "MIT",
+	"author": "Simon W. Jackson",
+	"publishConfig": { "access": "public" },
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/simonwjackson/tashks.git",
+		"directory": "packages/core"
+	},
+	"engines": { "node": ">=18" },
+	"sideEffects": false,
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun test"

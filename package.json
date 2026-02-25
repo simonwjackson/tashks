@@ -1,10 +1,12 @@
 {
-  "name": "tasks-monorepo",
+  "name": "tashks-monorepo",
   "private": true,
   "workspaces": ["packages/*"],
   "scripts": {
     "typecheck": "tsc --build",
-    "test": "bun test packages/"
+    "test": "bun test packages/",
+    "copy-license": "for dir in packages/*/; do cp LICENSE \"$dir\"; done",
+    "build": "bun run copy-license && tsc --build"
   },
   "devDependencies": {
     "@types/bun": "^1",

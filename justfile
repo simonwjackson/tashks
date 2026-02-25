@@ -1,4 +1,4 @@
-# Tasks — dev recipes
+# Tashks — dev recipes
 
 # Install dependencies
 install:

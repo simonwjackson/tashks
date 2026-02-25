@@ -1,5 +1,5 @@
 {
-  description = "Tasks — personal task management library";
+  description = "Tashks — personal task management library";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

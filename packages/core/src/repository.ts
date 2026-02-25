@@ -780,13 +780,13 @@ interface HookRuntimeOptions extends HookDiscoveryOptions {
 const defaultHooksDir = (env: NodeJS.ProcessEnv = process.env): string => {
 	const xdgConfigHome = env.XDG_CONFIG_HOME;
 	if (xdgConfigHome !== undefined && xdgConfigHome.length > 0) {
-		return join(xdgConfigHome, "tasks", "hooks");
+		return join(xdgConfigHome, "tashks", "hooks");
 	}
 
 	const home = env.HOME;
 	return home !== undefined && home.length > 0
-		? join(home, ".config", "tasks", "hooks")
-		: join(".config", "tasks", "hooks");
+		? join(home, ".config", "tashks", "hooks")
+		: join(".config", "tashks", "hooks");
 };
 
 const hookNamePattern = (event: HookEvent): RegExp =>
@@ -885,9 +885,9 @@ const buildHookEnv = (
 ): NodeJS.ProcessEnv => ({
 	...process.env,
 	...options.env,
-	TASKS_EVENT: event,
-	TASKS_ID: taskId,
-	TASKS_DATA_DIR: options.dataDir,
+	TASHKS_EVENT: event,
+	TASHKS_ID: taskId,
+	TASHKS_DATA_DIR: options.dataDir,
 });
 
 const runHookExecutable = (
@@ -1063,8 +1063,8 @@ export interface TaskRepositoryLiveOptions {
 const defaultDataDir = (): string => {
 	const home = process.env.HOME;
 	return home !== undefined && home.length > 0
-		? `${home}/.local/share/tasks`
-		: ".local/share/tasks";
+		? `${home}/.local/share/tashks`
+		: ".local/share/tashks";
 };
 
 const makeTaskRepositoryLive = (

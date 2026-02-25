@@ -1,14 +1,35 @@
 {
-	"name": "@tasks/cli",
+	"name": "@tashks/cli",
 	"version": "0.1.0",
 	"type": "module",
+	"description": "CLI for tashks — manage tasks and work-log entries stored as YAML files",
+	"bin": { "tashks": "dist/src/cli.js" },
+	"main": "dist/src/cli.js",
+	"types": "dist/src/cli.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/src/cli.d.ts",
+			"import": "./dist/src/cli.js"
+		}
+	},
+	"files": ["dist", "LICENSE"],
+	"license": "MIT",
+	"author": "Simon W. Jackson",
+	"publishConfig": { "access": "public" },
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/simonwjackson/tashks.git",
+		"directory": "packages/cli"
+	},
+	"engines": { "node": ">=18" },
+	"sideEffects": false,
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
 		"cli": "bun run src/cli.ts"
 	},
 	"dependencies": {
-		"@tasks/core": "workspace:*",
+		"@tashks/core": "workspace:*",
 		"effect": "^3",
 		"@effect/cli": "^0.54",
 		"@effect/platform": "^0.77",

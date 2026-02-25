@@ -2,7 +2,10 @@
 	"extends": "../../tsconfig.json",
 	"compilerOptions": {
 		"composite": true,
-		"outDir": "dist"
+		"outDir": "dist",
+		"paths": {
+			"@tashks/core/*": ["../core/src/*"]
+		}
 	},
 	"include": ["src"],
 	"references": [{ "path": "../core" }]

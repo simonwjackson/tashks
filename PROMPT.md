@@ -1,4 +1,4 @@
-# Tasks Library — Standalone Library
+# Tashks Library — Standalone Library
 
 ## Goal
 
@@ -10,7 +10,7 @@ Tasks and work log entries are stored as individual YAML files:
 - **Tasks:** `<data-dir>/tasks/<id>.yaml`
 - **Work log:** `<data-dir>/work-log/<id>.yaml`
 
-Default data directory: `~/.local/share/tasks`
+Default data directory: `~/.local/share/tashks`
 
 ### Example task file
 
@@ -176,7 +176,7 @@ Sorting and filtering helpers:
 Use `@effect/cli` with `@effect/platform-node`.
 
 **Global options:**
-- `--data-dir <path>` — override data directory (default: `~/.local/share/tasks`)
+- `--data-dir <path>` — override data directory (default: `~/.local/share/tashks`)
 - `--pretty` — human-readable output (default: JSON to stdout)
 
 **Commands:**
@@ -219,5 +219,5 @@ Use `bun test`.
 - No `@effect/rpc` — this library is transport-agnostic
 - ProseQL is the persistence layer — don't bypass it with raw `fs` calls
 - YAML file format is sacred — one file per entity, field names exactly as documented
-- Existing task files at `~/.local/share/tasks/tasks/*.yaml` must parse correctly without migration
+- Existing task files at `~/.local/share/tashks/tasks/*.yaml` must parse correctly without migration
 - No barrel files (`index.ts`)

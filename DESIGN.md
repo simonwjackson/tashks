@@ -1,4 +1,4 @@
-# Tasks Library — Design Spec
+# Tashks Library — Design Spec
 
 Derived from interview with Simon, 2026-02-24.
 
@@ -324,7 +324,7 @@ systemd.services.tasks-recurrence = {
 
 Hooks are executable scripts that run in response to task lifecycle events. They follow XDG conventions and are the library's extension point — keeping the core opinion-free while allowing consumers to layer on behavior.
 
-**Hook directory:** `${XDG_CONFIG_HOME:-~/.config}/tasks/hooks/`
+**Hook directory:** `${XDG_CONFIG_HOME:-~/.config}/tashks/hooks/`
 
 **Events:**
 
@@ -342,14 +342,14 @@ Hooks are executable scripts that run in response to task lifecycle events. They
 3. **Mutating hooks** (`on-create`, `on-modify`): The task is passed as JSON on stdin. If the hook exits 0 and writes JSON to stdout, that JSON replaces the task. If it exits 0 with no stdout, the task is unchanged. If it exits non-zero, the operation is **aborted** and the error message (stderr) is returned to the caller.
 4. **Non-mutating hooks** (`on-complete`, `on-delete`): The task is passed on stdin for informational purposes. Exit code is logged but does not block the operation.
 5. Hooks inherit the environment. The library sets these additional env vars:
-   - `TASKS_EVENT` — the event name (e.g., `create`, `modify`)
-   - `TASKS_ID` — the task ID
-   - `TASKS_DATA_DIR` — the data directory path
+   - `TASHKS_EVENT` — the event name (e.g., `create`, `modify`)
+   - `TASHKS_ID` — the task ID
+   - `TASHKS_DATA_DIR` — the data directory path
 
 **Example hooks:**
 
 ```bash
-# ~/.config/tasks/hooks/on-create
+# ~/.config/tashks/hooks/on-create
 #!/usr/bin/env bash
 # Auto-tag tasks with "work" if area is "work"
 task=$(cat)
@@ -362,7 +362,7 @@ fi
 ```
 
 ```bash
-# ~/.config/tasks/hooks/on-complete
+# ~/.config/tashks/hooks/on-complete
 #!/usr/bin/env bash
 # Send a notification when a task is completed
 task=$(cat)

@@ -56,12 +56,12 @@ const runDefaultCliJson = async (
 describe("cli global options", () => {
 	it("defaultDataDir uses HOME when available", () => {
 		expect(defaultDataDir({ HOME: "/home/simon" })).toBe(
-			"/home/simon/.local/share/tasks",
+			"/home/simon/.local/share/tashks",
 		);
 	});
 
 	it("defaultDataDir falls back when HOME is missing", () => {
-		expect(defaultDataDir({})).toBe(".local/share/tasks");
+		expect(defaultDataDir({})).toBe(".local/share/tashks");
 	});
 
 	it("resolveGlobalCliOptions uses the explicit data directory", () => {
@@ -89,7 +89,7 @@ describe("cli global options", () => {
 		);
 
 		expect(resolved).toEqual({
-			dataDir: "/home/simon/.local/share/tasks",
+			dataDir: "/home/simon/.local/share/tashks",
 			pretty: false,
 		});
 	});

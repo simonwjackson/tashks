@@ -1,4 +1,4 @@
-# Tasks — Implementation Plan
+# Tashks — Implementation Plan
 
 Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 
@@ -71,7 +71,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] Hook discovery (scan hook directory for executables) — *needs:* Phase 4
 - [x] Mutating hooks (`on-create`, `on-modify`) — stdin/stdout JSON, abort on non-zero — *needs:* Phase 4
 - [x] Non-mutating hooks (`on-complete`, `on-delete`) — fire-and-forget — *needs:* Phase 4
-- [x] Environment variables: `TASKS_EVENT`, `TASKS_ID`, `TASKS_DATA_DIR` — *needs:* Phase 4
+- [x] Environment variables: `TASHKS_EVENT`, `TASHKS_ID`, `TASHKS_DATA_DIR` — *needs:* Phase 4
 - [x] Add tests for hook execution
 
 ## Phase 8: CLI

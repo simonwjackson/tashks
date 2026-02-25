@@ -1,4 +1,4 @@
-# Tasks — Project Conventions
+# Tashks — Project Conventions
 
 ## What is this?
 
@@ -39,12 +39,12 @@ Bun workspaces monorepo with two packages:
 
 ```
 packages/
-  core/              # @tasks/core — the library
+  core/              # @tashks/core — the library
     src/
       schema.ts      # Effect Schema definitions — the canonical types
       repository.ts  # YAML-backed CRUD (read/write/delete/list)
       query.ts       # Filtering, sorting, helper functions
-  cli/               # @tasks/cli — CLI entry point (depends on @tasks/core)
+  cli/               # @tashks/cli — CLI entry point (depends on @tashks/core)
     src/
       cli.ts         # @effect/cli entry point
 ```
@@ -72,7 +72,7 @@ packages/
 
 ## Data directory
 
-Default: `~/.local/share/tasks`
+Default: `~/.local/share/tashks`
 - Tasks: `<data-dir>/tasks/<id>.yaml`
 - Work log: `<data-dir>/work-log/<id>.yaml`
 - Perspectives: `<data-dir>/perspectives.yaml`

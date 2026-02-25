@@ -360,7 +360,7 @@ describe("repository pure helpers", () => {
 
 	it("discoverHooksForEvent resolves the XDG hook directory by default", async () => {
 		const xdgConfigHome = await mkdtemp(join(tmpdir(), "tasks-hooks-xdg-"));
-		const hooksDir = join(xdgConfigHome, "tasks", "hooks");
+		const hooksDir = join(xdgConfigHome, "tashks", "hooks");
 
 		try {
 			await mkdir(hooksDir, { recursive: true });
@@ -944,7 +944,7 @@ process.stdout.write(JSON.stringify(task));
 		}
 	});
 
-	it("createTask hooks receive TASKS_EVENT, TASKS_ID, and TASKS_DATA_DIR", async () => {
+	it("createTask hooks receive TASHKS_EVENT, TASHKS_ID, and TASHKS_DATA_DIR", async () => {
 		const dataDir = await mkdtemp(join(tmpdir(), "tasks-create-hook-env-"));
 		const hooksDir = join(dataDir, "hooks");
 		const markerPath = join(dataDir, "on-create-env.json");
@@ -956,9 +956,9 @@ process.stdout.write(JSON.stringify(task));
 const fs = require("node:fs");
 const task = JSON.parse(fs.readFileSync(0, "utf8"));
 const payload = {
-  event: process.env.TASKS_EVENT ?? null,
-  id: process.env.TASKS_ID ?? null,
-  dataDir: process.env.TASKS_DATA_DIR ?? null,
+  event: process.env.TASHKS_EVENT ?? null,
+  id: process.env.TASHKS_ID ?? null,
+  dataDir: process.env.TASHKS_DATA_DIR ?? null,
 };
 fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(payload), "utf8");
 process.stdout.write(JSON.stringify(task));
@@ -1017,7 +1017,7 @@ process.stdout.write(JSON.stringify(payload.new));
 		}
 	});
 
-	it("updateTask hooks receive TASKS_EVENT, TASKS_ID, and TASKS_DATA_DIR", async () => {
+	it("updateTask hooks receive TASHKS_EVENT, TASHKS_ID, and TASHKS_DATA_DIR", async () => {
 		const dataDir = await mkdtemp(join(tmpdir(), "tasks-update-hook-env-"));
 		const hooksDir = join(dataDir, "hooks");
 		const markerPath = join(dataDir, "on-modify-env.json");
@@ -1030,9 +1030,9 @@ process.stdout.write(JSON.stringify(payload.new));
 const fs = require("node:fs");
 const payload = JSON.parse(fs.readFileSync(0, "utf8"));
 const envPayload = {
-  event: process.env.TASKS_EVENT ?? null,
-  id: process.env.TASKS_ID ?? null,
-  dataDir: process.env.TASKS_DATA_DIR ?? null,
+  event: process.env.TASHKS_EVENT ?? null,
+  id: process.env.TASHKS_ID ?? null,
+  dataDir: process.env.TASHKS_DATA_DIR ?? null,
 };
 fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(envPayload), "utf8");
 process.stdout.write(JSON.stringify(payload.new));
@@ -1198,7 +1198,7 @@ fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(task), "utf8");
 		}
 	});
 
-	it("completeTask hooks receive TASKS_EVENT, TASKS_ID, and TASKS_DATA_DIR", async () => {
+	it("completeTask hooks receive TASHKS_EVENT, TASHKS_ID, and TASHKS_DATA_DIR", async () => {
 		const dataDir = await mkdtemp(join(tmpdir(), "tasks-complete-hook-env-"));
 		const hooksDir = join(dataDir, "hooks");
 		const markerPath = join(dataDir, "on-complete-env.json");
@@ -1211,9 +1211,9 @@ fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(task), "utf8");
 const fs = require("node:fs");
 const task = JSON.parse(fs.readFileSync(0, "utf8"));
 const payload = {
-  event: process.env.TASKS_EVENT ?? null,
-  id: process.env.TASKS_ID ?? null,
-  dataDir: process.env.TASKS_DATA_DIR ?? null,
+  event: process.env.TASHKS_EVENT ?? null,
+  id: process.env.TASHKS_ID ?? null,
+  dataDir: process.env.TASHKS_DATA_DIR ?? null,
   taskId: task.id,
 };
 fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(payload), "utf8");
@@ -1742,7 +1742,7 @@ fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(task), "utf8");
 		}
 	});
 
-	it("deleteTask hooks receive TASKS_EVENT, TASKS_ID, and TASKS_DATA_DIR", async () => {
+	it("deleteTask hooks receive TASHKS_EVENT, TASHKS_ID, and TASHKS_DATA_DIR", async () => {
 		const dataDir = await mkdtemp(join(tmpdir(), "tasks-delete-hook-env-"));
 		const hooksDir = join(dataDir, "hooks");
 		const markerPath = join(dataDir, "on-delete-env.json");
@@ -1755,9 +1755,9 @@ fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(task), "utf8");
 const fs = require("node:fs");
 const task = JSON.parse(fs.readFileSync(0, "utf8"));
 const payload = {
-  event: process.env.TASKS_EVENT ?? null,
-  id: process.env.TASKS_ID ?? null,
-  dataDir: process.env.TASKS_DATA_DIR ?? null,
+  event: process.env.TASHKS_EVENT ?? null,
+  id: process.env.TASHKS_ID ?? null,
+  dataDir: process.env.TASHKS_DATA_DIR ?? null,
   taskId: task.id,
 };
 fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(payload), "utf8");

@@ -11,18 +11,18 @@
       },
     },
     "packages/cli": {
-      "name": "@tasks/cli",
+      "name": "@tashks/cli",
       "version": "0.1.0",
       "dependencies": {
         "@effect/cli": "^0.54",
         "@effect/platform": "^0.77",
         "@effect/platform-node": "^0.72",
-        "@tasks/core": "workspace:*",
+        "@tashks/core": "workspace:*",
         "effect": "^3",
       },
     },
     "packages/core": {
-      "name": "@tasks/core",
+      "name": "@tashks/core",
       "version": "0.1.0",
       "dependencies": {
         "@effect/platform": "^0.77",
@@ -95,9 +95,9 @@
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
-    "@tasks/cli": ["@tasks/cli@workspace:packages/cli"],
+    "@tashks/cli": ["@tashks/cli@workspace:packages/cli"],
 
-    "@tasks/core": ["@tasks/core@workspace:packages/core"],
+    "@tashks/core": ["@tashks/core@workspace:packages/core"],
 
     "@types/bun": ["@types/bun@1.3.9", "", { "dependencies": { "bun-types": "1.3.9" } }, "sha512-KQ571yULOdWJiMH+RIWIOZ7B2RXQGpL1YQrBtLIV3FqDcCu6FsbFUBwhdKUlCKUpS3PJDsHlJ1QKlpxoVR+xtw=="],
 

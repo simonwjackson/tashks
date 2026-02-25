@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import * as Args from "@effect/cli/Args";
 import * as Command from "@effect/cli/Command";
 import * as Options from "@effect/cli/Options";
@@ -7,11 +8,11 @@ import {
 	TaskRepositoryLive,
 	type ListTasksFilters,
 	type TaskRepositoryService,
-} from "@tasks/core/dist/src/repository.js";
+} from "@tashks/core/repository";
 import {
 	applyPerspectiveToTasks,
 	loadPerspectiveConfig,
-} from "@tasks/core/dist/src/query.js";
+} from "@tashks/core/query";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -183,8 +184,8 @@ export const defaultDataDir = (
 ): string => {
 	const home = env.HOME;
 	return home !== undefined && home.length > 0
-		? `${home}/.local/share/tasks`
-		: ".local/share/tasks";
+		? `${home}/.local/share/tashks`
+		: ".local/share/tashks";
 };
 
 export const resolveGlobalCliOptions = (
@@ -1273,7 +1274,7 @@ export const makeCli = <R, E>(
 			executeWorkLogDelete,
 		),
 		{
-			name: "Tasks CLI",
+			name: "Tashks CLI",
 			version: "v0.1.0",
 		},
 	);
