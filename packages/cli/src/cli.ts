@@ -101,6 +101,11 @@ export type DeleteTaskExecute<R, E> = (
 	id: string,
 ) => Effect.Effect<void, E, R>;
 
+export type HighlightTaskExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+) => Effect.Effect<void, E, R>;
+
 export const defaultDataDir = (
 	env: NodeJS.ProcessEnv = process.env,
 ): string => {
@@ -547,6 +552,26 @@ export const makeDeleteCommand = <R, E>(execute: DeleteTaskExecute<R, E>) =>
 			}),
 	).pipe(Command.withDescription("Delete a task by id"));
 
+export const makeHighlightCommand = <R, E>(
+	execute: HighlightTaskExecute<R, E>,
+) =>
+	Command.make(
+		"highlight",
+		{
+			dataDir: dataDirOption,
+			pretty: prettyOption,
+			id: Args.text({ name: "id" }),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("Set daily highlight task by id"));
+
 export const makeTasksCommand = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E>,
@@ -554,6 +579,7 @@ export const makeTasksCommand = <R, E>(
 	executeCreate: CreateTaskExecute<R, E>,
 	executeUpdate: UpdateTaskExecute<R, E>,
 	executeDelete: DeleteTaskExecute<R, E>,
+	executeHighlight: HighlightTaskExecute<R, E>,
 ) =>
 	Command.make(
 		"tasks",
@@ -570,6 +596,7 @@ export const makeTasksCommand = <R, E>(
 			makeCreateCommand(executeCreate),
 			makeUpdateCommand(executeUpdate),
 			makeDeleteCommand(executeDelete),
+			makeHighlightCommand(executeHighlight),
 		]),
 	);
 
@@ -598,6 +625,11 @@ const noopUpdateExecute = (
 ): Effect.Effect<void> => Effect.void;
 
 const noopDeleteExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopHighlightExecute = (
 	_options: GlobalCliOptions,
 	_id: string,
 ): Effect.Effect<void> => Effect.void;
@@ -662,6 +694,19 @@ const defaultDeleteExecute: DeleteTaskExecute<never, string> = (options, id) =>
 		});
 	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
 
+const defaultHighlightExecute: HighlightTaskExecute<never, string> = (
+	options,
+	id,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const task = yield* repository.setDailyHighlight(id);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+
 export const makeCli = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E> = noopListExecute as ListTasksExecute<
@@ -681,6 +726,10 @@ export const makeCli = <R, E>(
 		R,
 		E
 	> = noopDeleteExecute as DeleteTaskExecute<R, E>,
+	executeHighlight: HighlightTaskExecute<
+		R,
+		E
+	> = noopHighlightExecute as HighlightTaskExecute<R, E>,
 ) =>
 	Command.run(
 		makeTasksCommand(
@@ -690,6 +739,7 @@ export const makeCli = <R, E>(
 			executeCreate,
 			executeUpdate,
 			executeDelete,
+			executeHighlight,
 		),
 		{
 			name: "Tasks CLI",
@@ -704,6 +754,7 @@ export const cli = makeCli(
 	defaultCreateExecute,
 	defaultUpdateExecute,
 	defaultDeleteExecute,
+	defaultHighlightExecute,
 );
 
 export const runCli = (argv: ReadonlyArray<string> = process.argv) => cli(argv);

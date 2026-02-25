@@ -544,4 +544,45 @@ describe("cli parsing", () => {
 			},
 		]);
 	});
+
+	it("parses `tasks highlight <id>` with global options", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly id: string;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(options, id) =>
+				Effect.sync(() => {
+					captured.push({ options, id });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"highlight",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"revive-unzen",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					pretty: true,
+				},
+				id: "revive-unzen",
+			},
+		]);
+	});
 });
