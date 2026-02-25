@@ -34,7 +34,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 
 ## Phase 3: Query Layer
 
-- [ ] Filter predicates: `isBlocked`, `isUnblocked` — *needs:* Phase 1
+- [x] Filter predicates: `isBlocked`, `isUnblocked` — *needs:* Phase 1
 - [ ] Filter predicates: `isDueBefore`, `isDueThisWeek`, `isDeferred` — *needs:* Phase 1
 - [ ] Filter predicates: `hasEnergy`, `hasTag`, `hasProject` — *needs:* Phase 1
 - [ ] Filter predicates: `isStalerThan`, `wasCompletedOn`, `wasCompletedBetween` — *needs:* Phase 1
