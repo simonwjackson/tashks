@@ -5,9 +5,11 @@ import {
 	Task as TaskSchema,
 	TaskCreateInput as TaskCreateInputSchema,
 	TaskPatch as TaskPatchSchema,
+	WorkLogEntry as WorkLogEntrySchema,
 	type Task,
 	type TaskCreateInput,
 	type TaskPatch,
+	type WorkLogEntry,
 } from "./schema.js";
 
 const idSuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -36,6 +38,7 @@ const decodeTask = Schema.decodeUnknownSync(TaskSchema);
 const decodeTaskEither = Schema.decodeUnknownEither(TaskSchema);
 const decodeTaskCreateInput = Schema.decodeUnknownSync(TaskCreateInputSchema);
 const decodeTaskPatch = Schema.decodeUnknownSync(TaskPatchSchema);
+const decodeWorkLogEntryEither = Schema.decodeUnknownEither(WorkLogEntrySchema);
 
 export const generateTaskId = (title: string): string =>
 	`${slugifyTitle(title)}-${randomIdSuffix()}`;
@@ -44,6 +47,11 @@ export const todayIso = (): string => new Date().toISOString().slice(0, 10);
 
 export const parseTaskRecord = (record: unknown): Task | null => {
 	const result = decodeTaskEither(record);
+	return Either.isRight(result) ? result.right : null;
+};
+
+export const parseWorkLogRecord = (record: unknown): WorkLogEntry | null => {
+	const result = decodeWorkLogEntryEither(record);
 	return Either.isRight(result) ? result.right : null;
 };
 
