@@ -3,8 +3,10 @@ import * as Schema from "effect/Schema";
 import {
 	Task as TaskSchema,
 	TaskCreateInput as TaskCreateInputSchema,
+	TaskPatch as TaskPatchSchema,
 	type Task,
 	type TaskCreateInput,
+	type TaskPatch,
 } from "./schema.js";
 
 const idSuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -31,6 +33,7 @@ const randomIdSuffix = (): string => {
 
 const decodeTask = Schema.decodeUnknownSync(TaskSchema);
 const decodeTaskCreateInput = Schema.decodeUnknownSync(TaskCreateInputSchema);
+const decodeTaskPatch = Schema.decodeUnknownSync(TaskPatchSchema);
 
 export const generateTaskId = (title: string): string =>
 	`${slugifyTitle(title)}-${randomIdSuffix()}`;
@@ -43,6 +46,17 @@ export const createTaskFromInput = (input: TaskCreateInput): Task => {
 	return decodeTask({
 		...normalizedInput,
 		id: generateTaskId(normalizedInput.title),
+	});
+};
+
+export const applyTaskPatch = (task: Task, patch: TaskPatch): Task => {
+	const normalizedTask = decodeTask(task);
+	const normalizedPatch = decodeTaskPatch(patch);
+
+	return decodeTask({
+		...normalizedTask,
+		...normalizedPatch,
+		updated: todayIso(),
 	});
 };
 
