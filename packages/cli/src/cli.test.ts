@@ -6,6 +6,7 @@ import {
 	defaultDataDir,
 	formatOutput,
 	makeCli,
+	resolveCreateTaskInput,
 	resolveListTaskFilters,
 	resolveGlobalCliOptions,
 	type GlobalCliOptions,
@@ -105,6 +106,64 @@ describe("list filter resolution", () => {
 		});
 
 		expect(filters).toEqual({});
+	});
+});
+
+describe("create input resolution", () => {
+	it("maps all create options to repository create input fields", () => {
+		const input = resolveCreateTaskInput({
+			title: "Revive unzen server",
+			status: Option.some("active"),
+			area: Option.some("infrastructure"),
+			project: Option.some("homelab"),
+			tags: Option.some("hardware, weekend, ,ops"),
+			due: Option.some("2026-03-01"),
+			deferUntil: Option.some("2026-02-28"),
+			urgency: Option.some("high"),
+			energy: Option.some("high"),
+			context: Option.some("Mini-ITX build"),
+			recurrence: Option.some("FREQ=WEEKLY;BYDAY=MO"),
+			recurrenceTrigger: Option.some("completion"),
+			recurrenceStrategy: Option.some("accumulate"),
+		});
+
+		expect(input).toEqual({
+			title: "Revive unzen server",
+			status: "active",
+			area: "infrastructure",
+			project: "homelab",
+			tags: ["hardware", "weekend", "ops"],
+			due: "2026-03-01",
+			defer_until: "2026-02-28",
+			urgency: "high",
+			energy: "high",
+			context: "Mini-ITX build",
+			recurrence: "FREQ=WEEKLY;BYDAY=MO",
+			recurrence_trigger: "completion",
+			recurrence_strategy: "accumulate",
+		});
+	});
+
+	it("omits unset create options and empty tags", () => {
+		const input = resolveCreateTaskInput({
+			title: "Capture outage notes",
+			status: Option.none(),
+			area: Option.none(),
+			project: Option.none(),
+			tags: Option.some(" ,  , "),
+			due: Option.none(),
+			deferUntil: Option.none(),
+			urgency: Option.none(),
+			energy: Option.none(),
+			context: Option.none(),
+			recurrence: Option.none(),
+			recurrenceTrigger: Option.none(),
+			recurrenceStrategy: Option.none(),
+		});
+
+		expect(input).toEqual({
+			title: "Capture outage notes",
+		});
 	});
 });
 
@@ -227,6 +286,83 @@ describe("cli parsing", () => {
 					pretty: true,
 				},
 				id: "revive-unzen",
+			},
+		]);
+	});
+
+	it("parses `tasks create` with all create flags", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly input: ReturnType<typeof resolveCreateTaskInput>;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(options, input) =>
+				Effect.sync(() => {
+					captured.push({ options, input });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"create",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"--title",
+				"Revive unzen server",
+				"--status",
+				"active",
+				"--area",
+				"infrastructure",
+				"--project",
+				"homelab",
+				"--tags",
+				"hardware, weekend,ops",
+				"--due",
+				"2026-03-01",
+				"--defer-until",
+				"2026-02-28",
+				"--urgency",
+				"high",
+				"--energy",
+				"high",
+				"--context",
+				"Mini-ITX build",
+				"--recurrence",
+				"FREQ=WEEKLY;BYDAY=MO",
+				"--recurrence-trigger",
+				"completion",
+				"--recurrence-strategy",
+				"accumulate",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					pretty: true,
+				},
+				input: {
+					title: "Revive unzen server",
+					status: "active",
+					area: "infrastructure",
+					project: "homelab",
+					tags: ["hardware", "weekend", "ops"],
+					due: "2026-03-01",
+					defer_until: "2026-02-28",
+					urgency: "high",
+					energy: "high",
+					context: "Mini-ITX build",
+					recurrence: "FREQ=WEEKLY;BYDAY=MO",
+					recurrence_trigger: "completion",
+					recurrence_strategy: "accumulate",
+				},
 			},
 		]);
 	});
