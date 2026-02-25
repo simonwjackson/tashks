@@ -4,10 +4,6 @@
   "workspaces": {
     "": {
       "name": "tasks",
-      "dependencies": {
-        "@proseql/core": "^0.7.1",
-        "@proseql/node": "^0.7.1",
-      },
       "devDependencies": {
         "@biomejs/biome": "^1",
         "@types/bun": "^1",
@@ -98,9 +94,9 @@
 
     "@parcel/watcher-win32-x64": ["@parcel/watcher-win32-x64@2.5.6", "", { "os": "win32", "cpu": "x64" }, "sha512-hbQlYcCq5dlAX9Qx+kFb0FHue6vbjlf0FrNzSKdYK2APUf7tGfGxQCk2ihEREmbR6ZMc0MVAD5RIX/41gpUzTw=="],
 
-    "@proseql/core": ["@proseql/core@0.7.1", "", { "dependencies": { "@toon-format/toon": "^2.1.0", "effect": "^3.15.2", "hjson": "^3.2.2", "json5": "^2.2.3", "jsonc-parser": "^3.3.1", "smol-toml": "^1.6.0", "yaml": "^2.3.4" } }, "sha512-fgXWZbfXyMJtsuvjr1y2Tte5iEutRSrp0Wt+ew+dwxIh3YSS8fjasEjMJ7S9+f5KvweyAcS+iYMBAyvNtnJ9+w=="],
+    "@proseql/core": ["@proseql/core@0.10.2", "", { "dependencies": { "@toon-format/toon": "^2.1.0", "effect": "^3.15.2", "hjson": "^3.2.2", "json5": "^2.2.3", "jsonc-parser": "^3.3.1", "smol-toml": "^1.6.0", "yaml": "^2.3.4" } }, "sha512-0zN68NDo/J6tunbHlBdKBYJvtPBPfUBbvG3BAkhVgfm0IubvkCHwaB2vTCDAWhQ4e4QAkHU3bfPkO2FmNlWM/g=="],
 
-    "@proseql/node": ["@proseql/node@0.7.1", "", { "dependencies": { "@proseql/core": "^0.7.1" }, "peerDependencies": { "effect": "^3.15.2" } }, "sha512-j3hczNLZRCjza5zh1PHojgC8U8PeX35+hxgAUs5Gx/9fPWXYDxXjcZUREWDT6iM5OrDzpNMngV0NEHTnSgWeiQ=="],
+    "@proseql/node": ["@proseql/node@0.10.2", "", { "dependencies": { "@proseql/core": "^0.10.2" }, "peerDependencies": { "effect": "^3.15.2" } }, "sha512-20Zlu8pOcs9pRjsh9gMNrWdgZmnU1DvepFDXeAZCwqArGbCqiZ6hj2edmr93M+6KmBP0f4xCRImHpizAbxtZ/w=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
@@ -163,9 +159,5 @@
     "ws": ["ws@8.19.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-blAT2mjOEIi0ZzruJfIhb3nps74PRWTCz1IjglWEEpQl5XS/UNama6u2/rjFkDDouqr4L67ry+1aGIALViWjDg=="],
 
     "yaml": ["yaml@2.8.2", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-mplynKqc1C2hTVYxd0PU2xQAc22TI1vShAYGksCCfxbn/dFwnHTNi1bvYsBTkhdUNtGIf5xNOg938rrSSYvS9A=="],
-
-    "@tashks/core/@proseql/node": ["@proseql/node@0.10.2", "", { "dependencies": { "@proseql/core": "^0.10.2" }, "peerDependencies": { "effect": "^3.15.2" } }, "sha512-20Zlu8pOcs9pRjsh9gMNrWdgZmnU1DvepFDXeAZCwqArGbCqiZ6hj2edmr93M+6KmBP0f4xCRImHpizAbxtZ/w=="],
-
-    "@tashks/core/@proseql/node/@proseql/core": ["@proseql/core@0.10.2", "", { "dependencies": { "@toon-format/toon": "^2.1.0", "effect": "^3.15.2", "hjson": "^3.2.2", "json5": "^2.2.3", "jsonc-parser": "^3.3.1", "smol-toml": "^1.6.0", "yaml": "^2.3.4" } }, "sha512-0zN68NDo/J6tunbHlBdKBYJvtPBPfUBbvG3BAkhVgfm0IubvkCHwaB2vTCDAWhQ4e4QAkHU3bfPkO2FmNlWM/g=="],
   }
 }
