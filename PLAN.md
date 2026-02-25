@@ -80,7 +80,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] `tasks list` with all filter flags — *needs:* Phase 4
 - [x] `tasks get <id>` — *needs:* Phase 4
 - [x] `tasks create` with all options (including --project, --tags, --due, --recurrence) — *needs:* Phase 4
-- [ ] `tasks update <id>` with all patch options — *needs:* Phase 4
+- [x] `tasks update <id>` with all patch options — *needs:* Phase 4
 - [ ] `tasks delete <id>` — *needs:* Phase 4
 - [ ] `tasks highlight <id>` — *needs:* Phase 4
 - [ ] `tasks complete <id>` — *needs:* Phase 5
