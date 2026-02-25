@@ -1,4 +1,11 @@
 import { randomBytes } from "node:crypto";
+import * as Schema from "effect/Schema";
+import {
+	Task as TaskSchema,
+	TaskCreateInput as TaskCreateInputSchema,
+	type Task,
+	type TaskCreateInput,
+} from "./schema.js";
 
 const idSuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
 const idSuffixLength = 6;
@@ -22,10 +29,22 @@ const randomIdSuffix = (): string => {
 	).join("");
 };
 
+const decodeTask = Schema.decodeUnknownSync(TaskSchema);
+const decodeTaskCreateInput = Schema.decodeUnknownSync(TaskCreateInputSchema);
+
 export const generateTaskId = (title: string): string =>
 	`${slugifyTitle(title)}-${randomIdSuffix()}`;
 
 export const todayIso = (): string => new Date().toISOString().slice(0, 10);
+
+export const createTaskFromInput = (input: TaskCreateInput): Task => {
+	const normalizedInput = decodeTaskCreateInput(input);
+
+	return decodeTask({
+		...normalizedInput,
+		id: generateTaskId(normalizedInput.title),
+	});
+};
 
 // TODO: TaskRepository Effect service (Context.Tag)
 // TODO: YAML-backed CRUD for tasks and work log entries
