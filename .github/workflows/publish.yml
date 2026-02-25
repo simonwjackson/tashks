@@ -41,10 +41,6 @@ jobs:
       - name: Publish @tashks/core
         run: npm publish --provenance --access public --ignore-scripts
         working-directory: packages/core
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish @tashks/cli
         run: npm publish --provenance --access public --ignore-scripts
         working-directory: packages/cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
