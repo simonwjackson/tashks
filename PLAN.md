@@ -83,7 +83,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] `tasks update <id>` with all patch options — *needs:* Phase 4
 - [x] `tasks delete <id>` — *needs:* Phase 4
 - [x] `tasks highlight <id>` — *needs:* Phase 4
-- [ ] `tasks complete <id>` — *needs:* Phase 5
+- [x] `tasks complete <id>` — *needs:* Phase 5
 - [ ] `tasks perspective <name>` and `tasks perspectives` — *needs:* Phase 6
 - [ ] `tasks recurrence-check` — *needs:* Phase 5
 - [ ] Worklog subcommands: list, create, update, delete — *needs:* Phase 4
