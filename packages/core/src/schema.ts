@@ -189,4 +189,13 @@ export const TaskPatch = Schema.Struct({
 });
 export type TaskPatch = Schema.Schema.Encoded<typeof TaskPatch>;
 
-// TODO: WorkLogEntry, WorkLogCreateInput, WorkLogPatch schemas
+export const WorkLogEntry = Schema.Struct({
+	id: Schema.String,
+	task_id: Schema.String,
+	started_at: Schema.String,
+	ended_at: Schema.NullOr(Schema.String),
+	date: Schema.String,
+});
+export type WorkLogEntry = Schema.Schema.Type<typeof WorkLogEntry>;
+
+// TODO: WorkLogCreateInput, WorkLogPatch schemas
