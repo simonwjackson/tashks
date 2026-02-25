@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 import {
 	Task as TaskSchema,
@@ -32,6 +33,7 @@ const randomIdSuffix = (): string => {
 };
 
 const decodeTask = Schema.decodeUnknownSync(TaskSchema);
+const decodeTaskEither = Schema.decodeUnknownEither(TaskSchema);
 const decodeTaskCreateInput = Schema.decodeUnknownSync(TaskCreateInputSchema);
 const decodeTaskPatch = Schema.decodeUnknownSync(TaskPatchSchema);
 
@@ -39,6 +41,11 @@ export const generateTaskId = (title: string): string =>
 	`${slugifyTitle(title)}-${randomIdSuffix()}`;
 
 export const todayIso = (): string => new Date().toISOString().slice(0, 10);
+
+export const parseTaskRecord = (record: unknown): Task | null => {
+	const result = decodeTaskEither(record);
+	return Either.isRight(result) ? result.right : null;
+};
 
 export const createTaskFromInput = (input: TaskCreateInput): Task => {
 	const normalizedInput = decodeTaskCreateInput(input);
