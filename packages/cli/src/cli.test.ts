@@ -1,8 +1,12 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { NodeContext } from "@effect/platform-node";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import {
+	cli,
 	defaultDataDir,
 	formatOutput,
 	makeCli,
@@ -15,6 +19,39 @@ import {
 	resolveUpdateWorkLogPatch,
 	type GlobalCliOptions,
 } from "./cli.js";
+
+const captureStdout = async <A>(
+	run: () => Promise<A>,
+): Promise<{ readonly result: A; readonly stdout: string }> => {
+	const chunks: Array<string> = [];
+	const originalWrite = process.stdout.write;
+
+	process.stdout.write = ((chunk: string | Uint8Array) => {
+		chunks.push(
+			typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+		);
+		return true;
+	}) as typeof process.stdout.write;
+
+	try {
+		const result = await run();
+		return { result, stdout: chunks.join("") };
+	} finally {
+		process.stdout.write = originalWrite;
+	}
+};
+
+const runDefaultCliJson = async (
+	argv: ReadonlyArray<string>,
+): Promise<unknown> => {
+	const { stdout } = await captureStdout(() =>
+		Effect.runPromise(
+			cli(["bun", "cli.ts", ...argv]).pipe(Effect.provide(NodeContext.layer)),
+		),
+	);
+
+	return JSON.parse(stdout.trim());
+};
 
 describe("cli global options", () => {
 	it("defaultDataDir uses HOME when available", () => {
@@ -1044,5 +1081,95 @@ describe("cli parsing", () => {
 				id: "revive-unzen-20260305T090000Z",
 			},
 		]);
+	});
+});
+
+describe("cli smoke", () => {
+	it("round-trips create/get/list/update/delete against a real data directory", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-cli-smoke-"));
+
+		try {
+			const created = (await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Revive unzen server",
+				"--area",
+				"infrastructure",
+				"--project",
+				"homelab",
+				"--tags",
+				"hardware,weekend",
+			])) as Record<string, unknown>;
+
+			expect(created.title).toBe("Revive unzen server");
+			expect(created.area).toBe("infrastructure");
+			expect(created.project).toBe("homelab");
+			expect(created.tags).toEqual(["hardware", "weekend"]);
+			expect(created.status).toBe("active");
+			expect(created.id).toMatch(/^revive-unzen-server-[a-z0-9]{6}$/);
+
+			const id = created.id as string;
+
+			const fetched = (await runDefaultCliJson([
+				"get",
+				"--data-dir",
+				dataDir,
+				id,
+			])) as Record<string, unknown>;
+
+			expect(fetched.id).toBe(id);
+			expect(fetched.title).toBe("Revive unzen server");
+
+			const listedBeforeUpdate = (await runDefaultCliJson([
+				"list",
+				"--data-dir",
+				dataDir,
+			])) as Array<Record<string, unknown>>;
+
+			expect(listedBeforeUpdate).toHaveLength(1);
+			expect(listedBeforeUpdate[0]?.id).toBe(id);
+
+			const updated = (await runDefaultCliJson([
+				"update",
+				"--data-dir",
+				dataDir,
+				"--status",
+				"backlog",
+				"--project",
+				"lab-refresh",
+				"--tags",
+				"hardware,rack",
+				"--context",
+				"Start with rack shelf and power checks",
+				id,
+			])) as Record<string, unknown>;
+
+			expect(updated.id).toBe(id);
+			expect(updated.status).toBe("backlog");
+			expect(updated.project).toBe("lab-refresh");
+			expect(updated.tags).toEqual(["hardware", "rack"]);
+			expect(updated.context).toBe("Start with rack shelf and power checks");
+
+			const deleted = (await runDefaultCliJson([
+				"delete",
+				"--data-dir",
+				dataDir,
+				id,
+			])) as Record<string, unknown>;
+
+			expect(deleted).toEqual({ deleted: true });
+
+			const listedAfterDelete = (await runDefaultCliJson([
+				"list",
+				"--data-dir",
+				dataDir,
+			])) as Array<unknown>;
+
+			expect(listedAfterDelete).toEqual([]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
 	});
 });
