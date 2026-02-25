@@ -1,5 +1,7 @@
 import * as Schema from "effect/Schema";
 
+const currentDateIso = (): string => new Date().toISOString().slice(0, 10);
+
 export const TaskStatus = Schema.Literal(
 	"active",
 	"backlog",
@@ -77,5 +79,68 @@ export const Task = Schema.Struct({
 	recurrence_last_generated: Schema.NullOr(Schema.String),
 });
 export type Task = Schema.Schema.Type<typeof Task>;
+
+export const TaskCreateInput = Schema.Struct({
+	title: Schema.String,
+	status: Schema.optionalWith(TaskStatus, { default: () => "active" }),
+	area: Schema.optionalWith(TaskArea, { default: () => "personal" }),
+	project: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
+	tags: Schema.optionalWith(Schema.Array(Schema.String), {
+		default: () => [],
+	}),
+	created: Schema.optionalWith(Schema.String, {
+		default: currentDateIso,
+	}),
+	updated: Schema.optionalWith(Schema.String, {
+		default: currentDateIso,
+	}),
+	urgency: Schema.optionalWith(TaskUrgency, { default: () => "medium" }),
+	energy: Schema.optionalWith(TaskEnergy, { default: () => "medium" }),
+	due: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
+	context: Schema.optionalWith(Schema.String, {
+		default: () => "",
+	}),
+	subtasks: Schema.optionalWith(Schema.Array(Subtask), {
+		default: () => [],
+	}),
+	blocked_by: Schema.optionalWith(Schema.Array(Schema.String), {
+		default: () => [],
+	}),
+	estimated_minutes: Schema.optionalWith(Schema.NullOr(Schema.Number), {
+		default: () => null,
+	}),
+	actual_minutes: Schema.optionalWith(Schema.NullOr(Schema.Number), {
+		default: () => null,
+	}),
+	completed_at: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
+	last_surfaced: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
+	defer_until: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
+	nudge_count: Schema.optionalWith(Schema.Number, {
+		default: () => 0,
+	}),
+	recurrence: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
+	recurrence_trigger: Schema.optionalWith(TaskRecurrenceTrigger, {
+		default: () => "clock",
+	}),
+	recurrence_strategy: Schema.optionalWith(TaskRecurrenceStrategy, {
+		default: () => "replace",
+	}),
+	recurrence_last_generated: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
+});
+export type TaskCreateInput = Schema.Schema.Encoded<typeof TaskCreateInput>;
 
 // TODO: WorkLogEntry, WorkLogCreateInput, WorkLogPatch schemas
