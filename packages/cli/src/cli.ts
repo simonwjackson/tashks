@@ -1,3 +1,4 @@
+import * as Args from "@effect/cli/Args";
 import * as Command from "@effect/cli/Command";
 import * as Options from "@effect/cli/Options";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
@@ -33,6 +34,11 @@ export interface ListTasksCliOptionsInput {
 export type ListTasksExecute<R, E> = (
 	options: GlobalCliOptions,
 	filters: ListTasksFilters,
+) => Effect.Effect<void, E, R>;
+
+export type GetTaskExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
 ) => Effect.Effect<void, E, R>;
 
 export const defaultDataDir = (
@@ -190,9 +196,28 @@ export const makeListCommand = <R, E>(execute: ListTasksExecute<R, E>) =>
 			}),
 	).pipe(Command.withDescription("List tasks with optional filters"));
 
+export const makeGetCommand = <R, E>(execute: GetTaskExecute<R, E>) =>
+	Command.make(
+		"get",
+		{
+			dataDir: dataDirOption,
+			pretty: prettyOption,
+			id: Args.text({ name: "id" }),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("Get a task by id"));
+
 export const makeTasksCommand = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E>,
+	executeGet: GetTaskExecute<R, E>,
 ) =>
 	Command.make(
 		"tasks",
@@ -203,7 +228,10 @@ export const makeTasksCommand = <R, E>(
 		Command.withDescription(
 			"Manage tasks and work-log entries stored as YAML files.",
 		),
-		Command.withSubcommands([makeListCommand(executeList)]),
+		Command.withSubcommands([
+			makeListCommand(executeList),
+			makeGetCommand(executeGet),
+		]),
 	);
 
 const noopExecute = (_options: GlobalCliOptions): Effect.Effect<void> =>
@@ -212,6 +240,11 @@ const noopExecute = (_options: GlobalCliOptions): Effect.Effect<void> =>
 const noopListExecute = (
 	_options: GlobalCliOptions,
 	_filters: ListTasksFilters,
+): Effect.Effect<void> => Effect.void;
+
+const noopGetExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
 ): Effect.Effect<void> => Effect.void;
 
 const defaultListExecute: ListTasksExecute<never, string> = (
@@ -227,19 +260,30 @@ const defaultListExecute: ListTasksExecute<never, string> = (
 		});
 	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
 
+const defaultGetExecute: GetTaskExecute<never, string> = (options, id) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const task = yield* repository.getTask(id);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+
 export const makeCli = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E> = noopListExecute as ListTasksExecute<
 		R,
 		E
 	>,
+	executeGet: GetTaskExecute<R, E> = noopGetExecute as GetTaskExecute<R, E>,
 ) =>
-	Command.run(makeTasksCommand(execute, executeList), {
+	Command.run(makeTasksCommand(execute, executeList, executeGet), {
 		name: "Tasks CLI",
 		version: "v0.1.0",
 	});
 
-export const cli = makeCli(noopExecute, defaultListExecute);
+export const cli = makeCli(noopExecute, defaultListExecute, defaultGetExecute);
 
 export const runCli = (argv: ReadonlyArray<string> = process.argv) => cli(argv);
 

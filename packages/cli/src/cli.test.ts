@@ -193,4 +193,41 @@ describe("cli parsing", () => {
 			},
 		]);
 	});
+
+	it("parses `tasks get <id>` with global options", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly id: string;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(options, id) =>
+				Effect.sync(() => {
+					captured.push({ options, id });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"get",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"revive-unzen",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					pretty: true,
+				},
+				id: "revive-unzen",
+			},
+		]);
+	});
 });
