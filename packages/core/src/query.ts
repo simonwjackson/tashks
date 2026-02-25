@@ -176,6 +176,36 @@ export const byUpdatedDescThenTitle = (a: Task, b: Task): number => {
 	return a.title.localeCompare(b.title);
 };
 
+const byUpdatedAscThenTitle = (a: Task, b: Task): number => {
+	const byUpdatedAsc = a.updated.localeCompare(b.updated);
+	if (byUpdatedAsc !== 0) {
+		return byUpdatedAsc;
+	}
+
+	return a.title.localeCompare(b.title);
+};
+
+const byCompletedAtDescThenTitle = (a: Task, b: Task): number => {
+	if (a.completed_at === null && b.completed_at === null) {
+		return a.title.localeCompare(b.title);
+	}
+
+	if (a.completed_at === null) {
+		return 1;
+	}
+
+	if (b.completed_at === null) {
+		return -1;
+	}
+
+	const byCompletedAtDesc = b.completed_at.localeCompare(a.completed_at);
+	if (byCompletedAtDesc !== 0) {
+		return byCompletedAtDesc;
+	}
+
+	return a.title.localeCompare(b.title);
+};
+
 export const resolveRelativeDate = (
 	value: string,
 	today: string,
@@ -278,6 +308,117 @@ export const resolvePerspectiveConfigRelativeDates = (
 	}
 
 	return resolved;
+};
+
+export const applyPerspectiveToTasks = (
+	tasks: ReadonlyArray<Task>,
+	perspective: Perspective,
+	today: string = currentIsoDate(),
+): Array<Task> => {
+	const taskList = Array.from(tasks);
+	const dueBeforePredicate =
+		perspective.filters.due_before !== undefined
+			? isDueBefore(perspective.filters.due_before)
+			: null;
+	const stalePredicate =
+		perspective.filters.stale_days !== undefined
+			? isStalerThan(perspective.filters.stale_days, today)
+			: null;
+	const completedOnPredicate =
+		perspective.filters.completed_on !== undefined
+			? wasCompletedOn(perspective.filters.completed_on)
+			: null;
+
+	const filtered = taskList.filter((task) => {
+		if (
+			perspective.filters.status !== undefined &&
+			task.status !== perspective.filters.status
+		) {
+			return false;
+		}
+
+		if (
+			perspective.filters.area !== undefined &&
+			task.area !== perspective.filters.area
+		) {
+			return false;
+		}
+
+		if (
+			perspective.filters.project !== undefined &&
+			task.project !== perspective.filters.project
+		) {
+			return false;
+		}
+
+		if (
+			perspective.filters.tags !== undefined &&
+			perspective.filters.tags.length > 0 &&
+			!perspective.filters.tags.some((tag) => task.tags.includes(tag))
+		) {
+			return false;
+		}
+
+		if (
+			perspective.filters.energy !== undefined &&
+			task.energy !== perspective.filters.energy
+		) {
+			return false;
+		}
+
+		if (dueBeforePredicate !== null && !dueBeforePredicate(task)) {
+			return false;
+		}
+
+		if (
+			perspective.filters.due_after !== undefined &&
+			(task.due === null || task.due < perspective.filters.due_after)
+		) {
+			return false;
+		}
+
+		if (
+			perspective.filters.unblocked_only === true &&
+			!isUnblocked(task, taskList)
+		) {
+			return false;
+		}
+
+		if (stalePredicate !== null && !stalePredicate(task)) {
+			return false;
+		}
+
+		if (completedOnPredicate !== null && !completedOnPredicate(task)) {
+			return false;
+		}
+
+		return true;
+	});
+
+	switch (perspective.sort) {
+		case "due_asc":
+			return filtered.sort((a, b) => {
+				const byDue = byDueAsc(a, b);
+				return byDue !== 0 ? byDue : byUpdatedDescThenTitle(a, b);
+			});
+		case "energy_asc":
+			return filtered.sort((a, b) => {
+				const byEnergy = byEnergyAsc(a, b);
+				return byEnergy !== 0 ? byEnergy : byUpdatedDescThenTitle(a, b);
+			});
+		case "created_asc":
+			return filtered.sort((a, b) => {
+				const byCreated = byCreatedAsc(a, b);
+				return byCreated !== 0 ? byCreated : a.title.localeCompare(b.title);
+			});
+		case "updated_asc":
+			return filtered.sort(byUpdatedAscThenTitle);
+		case "completed_at_desc":
+			return filtered.sort(byCompletedAtDescThenTitle);
+		case "updated_desc":
+		default:
+			return filtered.sort(byUpdatedDescThenTitle);
+	}
 };
 
 export const loadPerspectiveConfig = (
