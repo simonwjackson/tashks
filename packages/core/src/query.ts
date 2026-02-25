@@ -6,6 +6,24 @@ const addDays = (date: string, days: number): string => {
 	return next.toISOString().slice(0, 10);
 };
 
+const dateToUtcMidnight = (date: string): number => {
+	const parsed = new Date(`${date}T00:00:00.000Z`).getTime();
+	return Number.isNaN(parsed) ? Number.NaN : parsed;
+};
+
+const completionDate = (task: Task): string | null => {
+	if (task.completed_at === null) {
+		return null;
+	}
+
+	const parsed = new Date(task.completed_at);
+	if (Number.isNaN(parsed.getTime())) {
+		return null;
+	}
+
+	return parsed.toISOString().slice(0, 10);
+};
+
 export const isBlocked = (task: Task, allTasks: Task[]): boolean => {
 	if (task.blocked_by.length === 0) {
 		return false;
@@ -55,7 +73,35 @@ export const hasProject =
 	(task: Task): boolean =>
 		task.project === project;
 
-// TODO: Staleness detection — isStalerThan
-// TODO: Completion queries — wasCompletedOn, wasCompletedBetween
+export const isStalerThan =
+	(days: number, today: string) =>
+	(task: Task): boolean => {
+		const updated = dateToUtcMidnight(task.updated);
+		const now = dateToUtcMidnight(today);
+
+		if (Number.isNaN(updated) || Number.isNaN(now)) {
+			return false;
+		}
+
+		const elapsedDays = (now - updated) / 86_400_000;
+		return elapsedDays > days;
+	};
+
+export const wasCompletedOn =
+	(date: string) =>
+	(task: Task): boolean =>
+		completionDate(task) === date;
+
+export const wasCompletedBetween =
+	(start: string, end: string) =>
+	(task: Task): boolean => {
+		const completed = completionDate(task);
+		if (completed === null) {
+			return false;
+		}
+
+		return completed >= start && completed <= end;
+	};
+
 // TODO: Sort helpers — byDueAsc, byEnergyAsc, byCreatedAsc, byUpdatedDescThenTitle
 // TODO: Perspective loader — read perspectives.yaml and apply filters/sorts
