@@ -19,7 +19,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] Define TaskPatch (all fields optional)
 - [x] Define WorkLogEntry schema (revised per DESIGN.md §2.4: per-task entries)
 - [x] Define WorkLogCreateInput and WorkLogPatch
-- [ ] Add tests for schema encode/decode round-trips
+- [x] Add tests for schema encode/decode round-trips
 
 ## Phase 2: Pure Helpers
 
