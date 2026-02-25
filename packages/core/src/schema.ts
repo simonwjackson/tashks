@@ -198,4 +198,24 @@ export const WorkLogEntry = Schema.Struct({
 });
 export type WorkLogEntry = Schema.Schema.Type<typeof WorkLogEntry>;
 
-// TODO: WorkLogCreateInput, WorkLogPatch schemas
+export const WorkLogCreateInput = Schema.Struct({
+	task_id: Schema.String,
+	started_at: Schema.String,
+	ended_at: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
+});
+export type WorkLogCreateInput = Schema.Schema.Encoded<
+	typeof WorkLogCreateInput
+>;
+
+export const WorkLogPatch = Schema.Struct({
+	id: Schema.optionalWith(Schema.String, { exact: true }),
+	task_id: Schema.optionalWith(Schema.String, { exact: true }),
+	started_at: Schema.optionalWith(Schema.String, { exact: true }),
+	ended_at: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		exact: true,
+	}),
+	date: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type WorkLogPatch = Schema.Schema.Encoded<typeof WorkLogPatch>;
