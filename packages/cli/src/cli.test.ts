@@ -459,6 +459,7 @@ describe("cli parsing", () => {
 				"--data-dir",
 				"/tmp/tasks-data",
 				"--pretty",
+				"--id",
 				"revive-unzen",
 			]).pipe(Effect.provide(NodeContext.layer)),
 		);
@@ -606,6 +607,7 @@ describe("cli parsing", () => {
 				"completion",
 				"--recurrence-strategy",
 				"accumulate",
+				"--id",
 				"revive-unzen",
 			]).pipe(Effect.provide(NodeContext.layer)),
 		);
@@ -663,6 +665,7 @@ describe("cli parsing", () => {
 				"--data-dir",
 				"/tmp/tasks-data",
 				"--pretty",
+				"--id",
 				"revive-unzen",
 			]).pipe(Effect.provide(NodeContext.layer)),
 		);
@@ -706,6 +709,7 @@ describe("cli parsing", () => {
 				"--data-dir",
 				"/tmp/tasks-data",
 				"--pretty",
+				"--id",
 				"revive-unzen",
 			]).pipe(Effect.provide(NodeContext.layer)),
 		);
@@ -750,6 +754,7 @@ describe("cli parsing", () => {
 				"--data-dir",
 				"/tmp/tasks-data",
 				"--pretty",
+				"--id",
 				"revive-unzen",
 			]).pipe(Effect.provide(NodeContext.layer)),
 		);
@@ -834,6 +839,7 @@ describe("cli parsing", () => {
 				"--data-dir",
 				"/tmp/tasks-data",
 				"--pretty",
+				"--name",
 				"quick-wins",
 			]).pipe(Effect.provide(NodeContext.layer)),
 		);
@@ -1046,6 +1052,7 @@ describe("cli parsing", () => {
 				"2026-03-05T09:00:00Z",
 				"--ended-at",
 				"2026-03-05T10:15:00Z",
+				"--id",
 				"revive-unzen-20260305T090000Z",
 			]).pipe(Effect.provide(NodeContext.layer)),
 		);
@@ -1104,6 +1111,7 @@ describe("cli parsing", () => {
 				"--data-dir",
 				"/tmp/tasks-data",
 				"--pretty",
+				"--id",
 				"revive-unzen-20260305T090000Z",
 			]).pipe(Effect.provide(NodeContext.layer)),
 		);
@@ -1154,6 +1162,7 @@ describe("cli smoke", () => {
 				"get",
 				"--data-dir",
 				dataDir,
+				"--id",
 				id,
 			])) as Record<string, unknown>;
 
@@ -1181,6 +1190,7 @@ describe("cli smoke", () => {
 				"hardware,rack",
 				"--context",
 				"Start with rack shelf and power checks",
+				"--id",
 				id,
 			])) as Record<string, unknown>;
 
@@ -1194,6 +1204,7 @@ describe("cli smoke", () => {
 				"delete",
 				"--data-dir",
 				dataDir,
+				"--id",
 				id,
 			])) as Record<string, unknown>;
 

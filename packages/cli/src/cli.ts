@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { dirname, join } from "node:path";
-import * as Args from "@effect/cli/Args";
 import * as Command from "@effect/cli/Command";
 import * as Options from "@effect/cli/Options";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
@@ -523,7 +522,7 @@ export const makeGetCommand = <R, E>(execute: GetTaskExecute<R, E>) =>
 			tasksFile: tasksFileOption,
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
-			id: Args.text({ name: "id" }),
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
 		},
 		(options) =>
 			Effect.gen(function* () {
@@ -624,7 +623,7 @@ export const makeUpdateCommand = <R, E>(execute: UpdateTaskExecute<R, E>) =>
 			tasksFile: tasksFileOption,
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
-			id: Args.text({ name: "id" }),
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
 			title: Options.text("title").pipe(
 				Options.withDescription("Updated task title"),
 				Options.optional,
@@ -705,7 +704,7 @@ export const makeDeleteCommand = <R, E>(execute: DeleteTaskExecute<R, E>) =>
 			tasksFile: tasksFileOption,
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
-			id: Args.text({ name: "id" }),
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
 		},
 		(options) =>
 			Effect.gen(function* () {
@@ -729,7 +728,7 @@ export const makeHighlightCommand = <R, E>(
 			tasksFile: tasksFileOption,
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
-			id: Args.text({ name: "id" }),
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
 		},
 		(options) =>
 			Effect.gen(function* () {
@@ -751,7 +750,7 @@ export const makeCompleteCommand = <R, E>(execute: CompleteTaskExecute<R, E>) =>
 			tasksFile: tasksFileOption,
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
-			id: Args.text({ name: "id" }),
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
 		},
 		(options) =>
 			Effect.gen(function* () {
@@ -798,7 +797,7 @@ export const makePerspectiveCommand = <R, E>(
 			tasksFile: tasksFileOption,
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
-			name: Args.text({ name: "name" }),
+			name: Options.text("name").pipe(Options.withDescription("Perspective name")),
 		},
 		(options) =>
 			Effect.gen(function* () {
@@ -907,7 +906,7 @@ export const makeWorkLogUpdateCommand = <R, E>(
 			tasksFile: tasksFileOption,
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
-			id: Args.text({ name: "id" }),
+			id: Options.text("id").pipe(Options.withDescription("Work log entry ID")),
 			taskId: Options.text("task-id").pipe(
 				Options.withDescription("Updated task id"),
 				Options.optional,
@@ -944,7 +943,7 @@ export const makeWorkLogDeleteCommand = <R, E>(
 			tasksFile: tasksFileOption,
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
-			id: Args.text({ name: "id" }),
+			id: Options.text("id").pipe(Options.withDescription("Work log entry ID")),
 		},
 		(options) =>
 			Effect.gen(function* () {
