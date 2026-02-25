@@ -1,4 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import type { Task, WorkLogEntry } from "./schema.js";
 import {
 	applyTaskPatch,
@@ -7,6 +11,9 @@ import {
 	generateTaskId,
 	parseTaskRecord,
 	parseWorkLogRecord,
+	TaskRepository,
+	TaskRepositoryLive,
+	type TaskRepositoryService,
 	todayIso,
 } from "./repository.js";
 
@@ -48,6 +55,26 @@ const baseWorkLogEntry = (): WorkLogEntry => ({
 	started_at: "2026-02-20T09:00:00Z",
 	ended_at: "2026-02-20T10:30:00Z",
 	date: "2026-02-20",
+});
+
+const unexpectedCall = <A>(): Effect.Effect<A, string> =>
+	Effect.fail("unexpected method call");
+
+const makeRepositoryService = (
+	overrides: Partial<TaskRepositoryService> = {},
+): TaskRepositoryService => ({
+	listTasks: () => Effect.succeed([]),
+	getTask: () => unexpectedCall(),
+	createTask: () => unexpectedCall(),
+	updateTask: () => unexpectedCall(),
+	deleteTask: () => unexpectedCall(),
+	setDailyHighlight: () => unexpectedCall(),
+	listStale: () => unexpectedCall(),
+	listWorkLog: () => unexpectedCall(),
+	createWorkLogEntry: () => unexpectedCall(),
+	updateWorkLogEntry: () => unexpectedCall(),
+	deleteWorkLogEntry: () => unexpectedCall(),
+	...overrides,
 });
 
 describe("repository pure helpers", () => {
@@ -135,5 +162,63 @@ describe("repository pure helpers", () => {
 			ended_at: null,
 			date: "2026-02-21",
 		});
+	});
+});
+
+describe("TaskRepository service", () => {
+	it("supports dependency injection via TaskRepository tag", async () => {
+		const service = makeRepositoryService({
+			listTasks: () => Effect.succeed([baseTask()]),
+		});
+
+		const tasks = await Effect.runPromise(
+			Effect.gen(function* () {
+				const repository = yield* TaskRepository;
+				return yield* repository.listTasks({ status: "active" });
+			}).pipe(Effect.provideService(TaskRepository, service)),
+		);
+
+		expect(tasks).toHaveLength(1);
+		expect(tasks[0]?.id).toBe("revive-unzen");
+	});
+
+	it("TaskRepositoryLive provides a service with all repository methods", async () => {
+		const methodNames = await Effect.runPromise(
+			Effect.gen(function* () {
+				const repository = yield* TaskRepository;
+				return Object.keys(repository).sort();
+			}).pipe(Effect.provide(TaskRepositoryLive())),
+		);
+
+		expect(methodNames).toEqual([
+			"createTask",
+			"createWorkLogEntry",
+			"deleteTask",
+			"deleteWorkLogEntry",
+			"getTask",
+			"listStale",
+			"listTasks",
+			"listWorkLog",
+			"setDailyHighlight",
+			"updateTask",
+			"updateWorkLogEntry",
+		]);
+	});
+
+	it("TaskRepositoryLive methods currently fail with not-implemented errors", async () => {
+		const program = Effect.gen(function* () {
+			const repository = yield* TaskRepository;
+			return yield* repository.getTask("task-id");
+		}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: "/tmp/tasks-test" })));
+
+		const result = await Effect.runPromiseExit(program);
+		expect(Exit.isFailure(result)).toBe(true);
+
+		if (Exit.isFailure(result)) {
+			const failure = Option.getOrNull(Cause.failureOption(result.cause));
+			expect(failure).toBe(
+				"TaskRepository.getTask is not implemented yet (data dir: /tmp/tasks-test)",
+			);
+		}
 	});
 });

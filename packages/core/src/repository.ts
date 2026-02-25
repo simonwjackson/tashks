@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
+import * as Context from "effect/Context";
 import * as Either from "effect/Either";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import {
 	Task as TaskSchema,
@@ -10,6 +13,7 @@ import {
 	type Task,
 	type TaskCreateInput,
 	type TaskPatch,
+	type WorkLogCreateInput,
 	type WorkLogEntry,
 	type WorkLogPatch,
 } from "./schema.js";
@@ -43,6 +47,102 @@ const decodeTaskPatch = Schema.decodeUnknownSync(TaskPatchSchema);
 const decodeWorkLogEntry = Schema.decodeUnknownSync(WorkLogEntrySchema);
 const decodeWorkLogEntryEither = Schema.decodeUnknownEither(WorkLogEntrySchema);
 const decodeWorkLogPatch = Schema.decodeUnknownSync(WorkLogPatchSchema);
+
+export interface ListTasksFilters {
+	readonly status?: Task["status"];
+	readonly area?: Task["area"];
+	readonly project?: string;
+	readonly tags?: ReadonlyArray<string>;
+	readonly due_before?: string;
+	readonly due_after?: string;
+	readonly unblocked_only?: boolean;
+	readonly date?: string;
+}
+
+export interface ListWorkLogFilters {
+	readonly date?: string;
+}
+
+export interface DeleteResult {
+	readonly deleted: true;
+}
+
+export interface TaskRepositoryService {
+	readonly listTasks: (
+		filters?: ListTasksFilters,
+	) => Effect.Effect<Array<Task>, string>;
+	readonly getTask: (id: string) => Effect.Effect<Task, string>;
+	readonly createTask: (input: TaskCreateInput) => Effect.Effect<Task, string>;
+	readonly updateTask: (
+		id: string,
+		patch: TaskPatch,
+	) => Effect.Effect<Task, string>;
+	readonly deleteTask: (id: string) => Effect.Effect<DeleteResult, string>;
+	readonly setDailyHighlight: (id: string) => Effect.Effect<Task, string>;
+	readonly listStale: (days: number) => Effect.Effect<Array<Task>, string>;
+	readonly listWorkLog: (
+		filters?: ListWorkLogFilters,
+	) => Effect.Effect<Array<WorkLogEntry>, string>;
+	readonly createWorkLogEntry: (
+		input: WorkLogCreateInput,
+	) => Effect.Effect<WorkLogEntry, string>;
+	readonly updateWorkLogEntry: (
+		id: string,
+		patch: WorkLogPatch,
+	) => Effect.Effect<WorkLogEntry, string>;
+	readonly deleteWorkLogEntry: (
+		id: string,
+	) => Effect.Effect<DeleteResult, string>;
+}
+
+export class TaskRepository extends Context.Tag("TaskRepository")<
+	TaskRepository,
+	TaskRepositoryService
+>() {}
+
+export interface TaskRepositoryLiveOptions {
+	readonly dataDir?: string;
+}
+
+const defaultDataDir = (): string => {
+	const home = process.env.HOME;
+	return home !== undefined && home.length > 0
+		? `${home}/.local/share/tasks`
+		: ".local/share/tasks";
+};
+
+const notImplemented = <A>(
+	operation: string,
+	dataDir: string,
+): Effect.Effect<A, string> =>
+	Effect.fail(
+		`TaskRepository.${operation} is not implemented yet (data dir: ${dataDir})`,
+	);
+
+const makeTaskRepositoryLive = (
+	options: TaskRepositoryLiveOptions = {},
+): TaskRepositoryService => {
+	const dataDir = options.dataDir ?? defaultDataDir();
+
+	return {
+		listTasks: () => notImplemented("listTasks", dataDir),
+		getTask: () => notImplemented("getTask", dataDir),
+		createTask: () => notImplemented("createTask", dataDir),
+		updateTask: () => notImplemented("updateTask", dataDir),
+		deleteTask: () => notImplemented("deleteTask", dataDir),
+		setDailyHighlight: () => notImplemented("setDailyHighlight", dataDir),
+		listStale: () => notImplemented("listStale", dataDir),
+		listWorkLog: () => notImplemented("listWorkLog", dataDir),
+		createWorkLogEntry: () => notImplemented("createWorkLogEntry", dataDir),
+		updateWorkLogEntry: () => notImplemented("updateWorkLogEntry", dataDir),
+		deleteWorkLogEntry: () => notImplemented("deleteWorkLogEntry", dataDir),
+	};
+};
+
+export const TaskRepositoryLive = (
+	options: TaskRepositoryLiveOptions = {},
+): Layer.Layer<TaskRepository> =>
+	Layer.succeed(TaskRepository, makeTaskRepositoryLive(options));
 
 export const generateTaskId = (title: string): string =>
 	`${slugifyTitle(title)}-${randomIdSuffix()}`;
@@ -91,12 +191,3 @@ export const applyWorkLogPatch = (
 		...normalizedPatch,
 	});
 };
-
-// TODO: TaskRepository Effect service (Context.Tag)
-// TODO: YAML-backed CRUD for tasks and work log entries
-// TODO: listTasks, getTask, createTask, updateTask, deleteTask
-// TODO: completeTask with recurrence handling
-// TODO: generateNextRecurrence (replace vs accumulate)
-// TODO: processDueRecurrences for clock-driven recurrence
-// TODO: listStale helper
-// TODO: Hook execution (on-create, on-modify, on-complete, on-delete)
