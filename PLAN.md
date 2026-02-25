@@ -24,7 +24,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 ## Phase 2: Pure Helpers
 
 - [x] `generateTaskId(title)` — slugify + random suffix — *needs:* Phase 1
-- [ ] `todayIso()` — current date as ISO string
+- [x] `todayIso()` — current date as ISO string
 - [ ] `createTaskFromInput(input)` — apply defaults, generate ID — *needs:* Phase 1
 - [ ] `applyTaskPatch(task, patch)` — merge patch, auto-set `updated` — *needs:* Phase 1
 - [ ] `parseTaskRecord(unknown)` — validate raw YAML data against Task schema — *needs:* Phase 1
