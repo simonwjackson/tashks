@@ -34,8 +34,13 @@ export type TaskUrgency = Schema.Schema.Type<typeof TaskUrgency>;
 export const TaskEnergy = Schema.Literal("low", "medium", "high");
 export type TaskEnergy = Schema.Schema.Type<typeof TaskEnergy>;
 
+export const Subtask = Schema.Struct({
+	text: Schema.String,
+	done: Schema.Boolean,
+});
+export type Subtask = Schema.Schema.Type<typeof Subtask>;
+
 // TODO: Task, TaskCreateInput, TaskPatch schemas
 // TODO: WorkLogEntry, WorkLogCreateInput, WorkLogPatch schemas
-// TODO: Subtask schema
 // TODO: Recurrence fields (recurrence, recurrence_trigger, recurrence_strategy, recurrence_last_generated)
 // TODO: New fields from DESIGN.md: project, tags, due
