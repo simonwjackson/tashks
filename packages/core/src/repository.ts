@@ -1,9 +1,12 @@
 import { randomBytes } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import * as Context from "effect/Context";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import YAML from "yaml";
 import {
 	Task as TaskSchema,
 	TaskCreateInput as TaskCreateInputSchema,
@@ -17,6 +20,7 @@ import {
 	type WorkLogEntry,
 	type WorkLogPatch,
 } from "./schema.js";
+import { byUpdatedDescThenTitle, isDueBefore, isUnblocked } from "./query.js";
 
 const idSuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
 const idSuffixLength = 6;
@@ -47,6 +51,115 @@ const decodeTaskPatch = Schema.decodeUnknownSync(TaskPatchSchema);
 const decodeWorkLogEntry = Schema.decodeUnknownSync(WorkLogEntrySchema);
 const decodeWorkLogEntryEither = Schema.decodeUnknownEither(WorkLogEntrySchema);
 const decodeWorkLogPatch = Schema.decodeUnknownSync(WorkLogPatchSchema);
+
+const toErrorMessage = (error: unknown): string =>
+	error instanceof Error ? error.message : String(error);
+
+const readTasksFromDisk = (
+	dataDir: string,
+): Effect.Effect<Array<Task>, string> =>
+	Effect.tryPromise({
+		try: async () => {
+			const tasksDir = join(dataDir, "tasks");
+			const entries = await readdir(tasksDir, { withFileTypes: true }).catch(
+				(error: unknown) => {
+					if (
+						error !== null &&
+						typeof error === "object" &&
+						"code" in error &&
+						error.code === "ENOENT"
+					) {
+						return [];
+					}
+					throw error;
+				},
+			);
+
+			const taskFiles = entries
+				.filter(
+					(entry) =>
+						entry.isFile() &&
+						(entry.name.endsWith(".yaml") || entry.name.endsWith(".yml")),
+				)
+				.map((entry) => entry.name);
+
+			const tasks: Array<Task> = [];
+
+			for (const fileName of taskFiles) {
+				const filePath = join(tasksDir, fileName);
+				const source = await readFile(filePath, "utf8");
+				const parsed = YAML.parse(source);
+				const task = parseTaskRecord(parsed);
+
+				if (task === null) {
+					throw new Error(`Invalid task record in ${filePath}`);
+				}
+
+				tasks.push(task);
+			}
+
+			return tasks;
+		},
+		catch: (error) =>
+			`TaskRepository.listTasks failed to read task files: ${toErrorMessage(error)}`,
+	});
+
+const applyListTaskFilters = (
+	tasks: Array<Task>,
+	filters: ListTasksFilters = {},
+): Array<Task> => {
+	const dueBeforePredicate =
+		filters.due_before !== undefined ? isDueBefore(filters.due_before) : null;
+
+	return tasks
+		.filter((task) => {
+			if (filters.status !== undefined && task.status !== filters.status) {
+				return false;
+			}
+
+			if (filters.area !== undefined && task.area !== filters.area) {
+				return false;
+			}
+
+			if (filters.project !== undefined && task.project !== filters.project) {
+				return false;
+			}
+
+			if (
+				filters.tags !== undefined &&
+				filters.tags.length > 0 &&
+				!filters.tags.some((tag) => task.tags.includes(tag))
+			) {
+				return false;
+			}
+
+			if (dueBeforePredicate !== null && !dueBeforePredicate(task)) {
+				return false;
+			}
+
+			if (
+				filters.due_after !== undefined &&
+				(task.due === null || task.due < filters.due_after)
+			) {
+				return false;
+			}
+
+			if (
+				filters.date !== undefined &&
+				task.defer_until !== null &&
+				task.defer_until > filters.date
+			) {
+				return false;
+			}
+
+			if (filters.unblocked_only === true && !isUnblocked(task, tasks)) {
+				return false;
+			}
+
+			return true;
+		})
+		.sort(byUpdatedDescThenTitle);
+};
 
 export interface ListTasksFilters {
 	readonly status?: Task["status"];
@@ -125,7 +238,10 @@ const makeTaskRepositoryLive = (
 	const dataDir = options.dataDir ?? defaultDataDir();
 
 	return {
-		listTasks: () => notImplemented("listTasks", dataDir),
+		listTasks: (filters) =>
+			Effect.map(readTasksFromDisk(dataDir), (tasks) =>
+				applyListTaskFilters(tasks, filters),
+			),
 		getTask: () => notImplemented("getTask", dataDir),
 		createTask: () => notImplemented("createTask", dataDir),
 		updateTask: () => notImplemented("updateTask", dataDir),
