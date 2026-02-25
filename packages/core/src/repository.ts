@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as Context from "effect/Context";
 import * as Either from "effect/Either";
@@ -54,6 +54,82 @@ const decodeWorkLogPatch = Schema.decodeUnknownSync(WorkLogPatchSchema);
 
 const toErrorMessage = (error: unknown): string =>
 	error instanceof Error ? error.message : String(error);
+
+const taskFilePath = (dataDir: string, id: string): string =>
+	join(dataDir, "tasks", `${id}.yaml`);
+
+const legacyTaskFilePath = (dataDir: string, id: string): string =>
+	join(dataDir, "tasks", `${id}.yml`);
+
+const ensureTasksDir = (dataDir: string): Effect.Effect<void, string> =>
+	Effect.tryPromise({
+		try: () => mkdir(join(dataDir, "tasks"), { recursive: true }),
+		catch: (error) =>
+			`TaskRepository failed to create tasks directory: ${toErrorMessage(error)}`,
+	});
+
+const readTaskByIdFromDisk = (
+	dataDir: string,
+	id: string,
+): Effect.Effect<{ readonly path: string; readonly task: Task }, string> =>
+	Effect.tryPromise({
+		try: async () => {
+			const candidatePaths = [
+				taskFilePath(dataDir, id),
+				legacyTaskFilePath(dataDir, id),
+			];
+
+			for (const path of candidatePaths) {
+				const source = await readFile(path, "utf8").catch((error: unknown) => {
+					if (
+						error !== null &&
+						typeof error === "object" &&
+						"code" in error &&
+						error.code === "ENOENT"
+					) {
+						return null;
+					}
+					throw error;
+				});
+
+				if (source === null) {
+					continue;
+				}
+
+				const parsed = YAML.parse(source);
+				const task = parseTaskRecord(parsed);
+				if (task === null) {
+					throw new Error(`Invalid task record in ${path}`);
+				}
+
+				return { path, task };
+			}
+
+			throw new Error(`Task not found: ${id}`);
+		},
+		catch: (error) =>
+			`TaskRepository failed to read task ${id}: ${toErrorMessage(error)}`,
+	});
+
+const writeTaskToDisk = (
+	path: string,
+	task: Task,
+): Effect.Effect<void, string> =>
+	Effect.tryPromise({
+		try: () => writeFile(path, YAML.stringify(task), "utf8"),
+		catch: (error) =>
+			`TaskRepository failed to write task ${task.id}: ${toErrorMessage(error)}`,
+	});
+
+const deleteTaskFromDisk = (
+	path: string,
+	id: string,
+): Effect.Effect<void, string> =>
+	Effect.tryPromise({
+		try: () => rm(path),
+		catch: (error) =>
+			`TaskRepository failed to delete task ${id}: ${toErrorMessage(error)}`,
+	});
 
 const readTasksFromDisk = (
 	dataDir: string,
@@ -242,10 +318,29 @@ const makeTaskRepositoryLive = (
 			Effect.map(readTasksFromDisk(dataDir), (tasks) =>
 				applyListTaskFilters(tasks, filters),
 			),
-		getTask: () => notImplemented("getTask", dataDir),
-		createTask: () => notImplemented("createTask", dataDir),
-		updateTask: () => notImplemented("updateTask", dataDir),
-		deleteTask: () => notImplemented("deleteTask", dataDir),
+		getTask: (id) =>
+			Effect.map(readTaskByIdFromDisk(dataDir, id), (result) => result.task),
+		createTask: (input) =>
+			Effect.gen(function* () {
+				yield* ensureTasksDir(dataDir);
+				const created = createTaskFromInput(input);
+				const path = taskFilePath(dataDir, created.id);
+				yield* writeTaskToDisk(path, created);
+				return created;
+			}),
+		updateTask: (id, patch) =>
+			Effect.gen(function* () {
+				const existing = yield* readTaskByIdFromDisk(dataDir, id);
+				const updated = applyTaskPatch(existing.task, patch);
+				yield* writeTaskToDisk(existing.path, updated);
+				return updated;
+			}),
+		deleteTask: (id) =>
+			Effect.gen(function* () {
+				const existing = yield* readTaskByIdFromDisk(dataDir, id);
+				yield* deleteTaskFromDisk(existing.path, id);
+				return { deleted: true } as const;
+			}),
 		setDailyHighlight: () => notImplemented("setDailyHighlight", dataDir),
 		listStale: () => notImplemented("listStale", dataDir),
 		listWorkLog: () => notImplemented("listWorkLog", dataDir),

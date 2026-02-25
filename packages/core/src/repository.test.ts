@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Cause from "effect/Cause";
@@ -90,6 +90,28 @@ const runListTasks = (
 		Effect.gen(function* () {
 			const repository = yield* TaskRepository;
 			return yield* repository.listTasks(filters);
+		}).pipe(Effect.provide(TaskRepositoryLive({ dataDir }))),
+	);
+
+const runRepository = <A>(
+	dataDir: string,
+	run: (repository: TaskRepositoryService) => Effect.Effect<A, string>,
+): Promise<A> =>
+	Effect.runPromise(
+		Effect.gen(function* () {
+			const repository = yield* TaskRepository;
+			return yield* run(repository);
+		}).pipe(Effect.provide(TaskRepositoryLive({ dataDir }))),
+	);
+
+const runRepositoryExit = <A>(
+	dataDir: string,
+	run: (repository: TaskRepositoryService) => Effect.Effect<A, string>,
+): Promise<Exit.Exit<A, string>> =>
+	Effect.runPromiseExit(
+		Effect.gen(function* () {
+			const repository = yield* TaskRepository;
+			return yield* run(repository);
 		}).pipe(Effect.provide(TaskRepositoryLive({ dataDir }))),
 	);
 
@@ -441,20 +463,85 @@ describe("TaskRepository service", () => {
 		]);
 	});
 
-	it("TaskRepositoryLive methods currently fail with not-implemented errors", async () => {
-		const program = Effect.gen(function* () {
-			const repository = yield* TaskRepository;
-			return yield* repository.getTask("task-id");
-		}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: "/tmp/tasks-test" })));
-
-		const result = await Effect.runPromiseExit(program);
-		expect(Exit.isFailure(result)).toBe(true);
-
-		if (Exit.isFailure(result)) {
-			const failure = Option.getOrNull(Cause.failureOption(result.cause));
-			expect(failure).toBe(
-				"TaskRepository.getTask is not implemented yet (data dir: /tmp/tasks-test)",
+	it("createTask writes a task that can be retrieved by getTask", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-create-get-"));
+		try {
+			const created = await runRepository(dataDir, (repository) =>
+				repository.createTask({
+					title: "Capture outage notes",
+					project: "ops",
+					tags: ["incident"],
+					area: "work",
+				}),
 			);
+
+			const storedSource = await readFile(
+				join(dataDir, "tasks", `${created.id}.yaml`),
+				"utf8",
+			);
+			const stored = YAML.parse(storedSource);
+
+			expect(created.id).toMatch(/^capture-outage-notes-[a-z0-9]{6}$/);
+			expect(stored).toEqual(created);
+
+			const fetched = await runRepository(dataDir, (repository) =>
+				repository.getTask(created.id),
+			);
+			expect(fetched).toEqual(created);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("updateTask merges the patch, refreshes updated, and persists the result", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-update-"));
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+
+			const updated = await runRepository(dataDir, (repository) =>
+				repository.updateTask("revive-unzen", {
+					title: "Repair array",
+					tags: ["storage"],
+					updated: "1999-01-01",
+				}),
+			);
+
+			expect(updated.title).toBe("Repair array");
+			expect(updated.tags).toEqual(["storage"]);
+			expect(updated.updated).toBe(todayIso());
+
+			const fetched = await runRepository(dataDir, (repository) =>
+				repository.getTask("revive-unzen"),
+			);
+			expect(fetched).toEqual(updated);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("deleteTask removes the task file and returns deleted", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-delete-"));
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+
+			const deleted = await runRepository(dataDir, (repository) =>
+				repository.deleteTask("revive-unzen"),
+			);
+			expect(deleted).toEqual({ deleted: true });
+
+			const result = await runRepositoryExit(dataDir, (repository) =>
+				repository.getTask("revive-unzen"),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+
+			if (Exit.isFailure(result)) {
+				const failure = Option.getOrNull(Cause.failureOption(result.cause));
+				expect(failure).toBe(
+					"TaskRepository failed to read task revive-unzen: Task not found: revive-unzen",
+				);
+			}
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
 		}
 	});
 });
