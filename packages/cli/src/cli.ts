@@ -115,6 +115,10 @@ export type CompleteTaskExecute<R, E> = (
 	id: string,
 ) => Effect.Effect<void, E, R>;
 
+export type RecurrenceCheckExecute<R, E> = (
+	options: GlobalCliOptions,
+) => Effect.Effect<void, E, R>;
+
 export type PerspectiveExecute<R, E> = (
 	options: GlobalCliOptions,
 	name: string,
@@ -608,6 +612,25 @@ export const makeCompleteCommand = <R, E>(execute: CompleteTaskExecute<R, E>) =>
 			}),
 	).pipe(Command.withDescription("Complete a task by id"));
 
+export const makeRecurrenceCheckCommand = <R, E>(
+	execute: RecurrenceCheckExecute<R, E>,
+) =>
+	Command.make(
+		"recurrence-check",
+		{
+			dataDir: dataDirOption,
+			pretty: prettyOption,
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions);
+			}),
+	).pipe(Command.withDescription("Process due clock-driven recurring tasks"));
+
 export const makePerspectiveCommand = <R, E>(
 	execute: PerspectiveExecute<R, E>,
 ) =>
@@ -656,6 +679,7 @@ export const makeTasksCommand = <R, E>(
 	executeDelete: DeleteTaskExecute<R, E>,
 	executeHighlight: HighlightTaskExecute<R, E>,
 	executeComplete: CompleteTaskExecute<R, E>,
+	executeRecurrenceCheck: RecurrenceCheckExecute<R, E>,
 	executePerspective: PerspectiveExecute<R, E>,
 	executePerspectives: PerspectivesExecute<R, E>,
 ) =>
@@ -676,6 +700,7 @@ export const makeTasksCommand = <R, E>(
 			makeDeleteCommand(executeDelete),
 			makeHighlightCommand(executeHighlight),
 			makeCompleteCommand(executeComplete),
+			makeRecurrenceCheckCommand(executeRecurrenceCheck),
 			makePerspectiveCommand(executePerspective),
 			makePerspectivesCommand(executePerspectives),
 		]),
@@ -718,6 +743,10 @@ const noopHighlightExecute = (
 const noopCompleteExecute = (
 	_options: GlobalCliOptions,
 	_id: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopRecurrenceCheckExecute = (
+	_options: GlobalCliOptions,
 ): Effect.Effect<void> => Effect.void;
 
 const noopPerspectiveExecute = (
@@ -815,6 +844,18 @@ const defaultCompleteExecute: CompleteTaskExecute<never, string> = (
 		});
 	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
 
+const defaultRecurrenceCheckExecute: RecurrenceCheckExecute<never, string> = (
+	options,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const result = yield* repository.processDueRecurrences(new Date());
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(result, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+
 const defaultPerspectiveExecute: PerspectiveExecute<never, string> = (
 	options,
 	name,
@@ -875,6 +916,10 @@ export const makeCli = <R, E>(
 		R,
 		E
 	> = noopCompleteExecute as CompleteTaskExecute<R, E>,
+	executeRecurrenceCheck: RecurrenceCheckExecute<
+		R,
+		E
+	> = noopRecurrenceCheckExecute as RecurrenceCheckExecute<R, E>,
 	executePerspective: PerspectiveExecute<
 		R,
 		E
@@ -894,6 +939,7 @@ export const makeCli = <R, E>(
 			executeDelete,
 			executeHighlight,
 			executeComplete,
+			executeRecurrenceCheck,
 			executePerspective,
 			executePerspectives,
 		),
@@ -912,6 +958,7 @@ export const cli = makeCli(
 	defaultDeleteExecute,
 	defaultHighlightExecute,
 	defaultCompleteExecute,
+	defaultRecurrenceCheckExecute,
 	defaultPerspectiveExecute,
 	defaultPerspectivesExecute,
 );

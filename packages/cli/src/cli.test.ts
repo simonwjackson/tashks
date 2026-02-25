@@ -628,6 +628,42 @@ describe("cli parsing", () => {
 		]);
 	});
 
+	it("parses `tasks recurrence-check` with global options", async () => {
+		const captured: Array<GlobalCliOptions> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(_options, _id, _patch) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _id) => Effect.void,
+			(options) =>
+				Effect.sync(() => {
+					captured.push(options);
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"recurrence-check",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				dataDir: "/tmp/tasks-data",
+				pretty: true,
+			},
+		]);
+	});
+
 	it("parses `tasks perspective <name>` with global options", async () => {
 		const captured: Array<{
 			readonly options: GlobalCliOptions;
@@ -642,6 +678,7 @@ describe("cli parsing", () => {
 			(_options, _id) => Effect.void,
 			(_options, _id) => Effect.void,
 			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
 			(options, name) =>
 				Effect.sync(() => {
 					captured.push({ options, name });
@@ -682,6 +719,7 @@ describe("cli parsing", () => {
 			(_options, _id) => Effect.void,
 			(_options, _id) => Effect.void,
 			(_options, _id) => Effect.void,
+			(_options) => Effect.void,
 			(_options, _name) => Effect.void,
 			(options) =>
 				Effect.sync(() => {
