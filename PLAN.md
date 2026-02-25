@@ -78,7 +78,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 
 - [x] Global options: `--data-dir`, `--pretty` — *needs:* Phase 4
 - [x] `tasks list` with all filter flags — *needs:* Phase 4
-- [ ] `tasks get <id>` — *needs:* Phase 4
+- [x] `tasks get <id>` — *needs:* Phase 4
 - [ ] `tasks create` with all options (including --project, --tags, --due, --recurrence) — *needs:* Phase 4
 - [ ] `tasks update <id>` with all patch options — *needs:* Phase 4
 - [ ] `tasks delete <id>` — *needs:* Phase 4
