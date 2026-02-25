@@ -519,6 +519,68 @@ describe("TaskRepository service", () => {
 		}
 	});
 
+	it("setDailyHighlight persists the highlighted task id and replaces previous highlight", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-highlight-"));
+		try {
+			const firstTask = {
+				...baseTask(),
+				id: "first-task",
+				title: "First task",
+			};
+			const secondTask = {
+				...baseTask(),
+				id: "second-task",
+				title: "Second task",
+			};
+			await writeTaskFiles(dataDir, [firstTask, secondTask]);
+
+			const firstHighlight = await runRepository(dataDir, (repository) =>
+				repository.setDailyHighlight("first-task"),
+			);
+			expect(firstHighlight.id).toBe("first-task");
+			expect(
+				YAML.parse(
+					await readFile(join(dataDir, "daily-highlight.yaml"), "utf8"),
+				),
+			).toEqual({
+				id: "first-task",
+			});
+
+			const secondHighlight = await runRepository(dataDir, (repository) =>
+				repository.setDailyHighlight("second-task"),
+			);
+			expect(secondHighlight.id).toBe("second-task");
+			expect(
+				YAML.parse(
+					await readFile(join(dataDir, "daily-highlight.yaml"), "utf8"),
+				),
+			).toEqual({
+				id: "second-task",
+			});
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("setDailyHighlight fails when the task does not exist", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-highlight-missing-"));
+		try {
+			const result = await runRepositoryExit(dataDir, (repository) =>
+				repository.setDailyHighlight("missing-task"),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+
+			if (Exit.isFailure(result)) {
+				const failure = Option.getOrNull(Cause.failureOption(result.cause));
+				expect(failure).toBe(
+					"TaskRepository failed to read task missing-task: Task not found: missing-task",
+				);
+			}
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
 	it("deleteTask removes the task file and returns deleted", async () => {
 		const dataDir = await mkdtemp(join(tmpdir(), "tasks-delete-"));
 		try {

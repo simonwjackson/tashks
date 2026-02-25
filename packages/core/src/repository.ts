@@ -61,11 +61,31 @@ const taskFilePath = (dataDir: string, id: string): string =>
 const legacyTaskFilePath = (dataDir: string, id: string): string =>
 	join(dataDir, "tasks", `${id}.yml`);
 
+const dailyHighlightFilePath = (dataDir: string): string =>
+	join(dataDir, "daily-highlight.yaml");
+
 const ensureTasksDir = (dataDir: string): Effect.Effect<void, string> =>
 	Effect.tryPromise({
 		try: () => mkdir(join(dataDir, "tasks"), { recursive: true }),
 		catch: (error) =>
 			`TaskRepository failed to create tasks directory: ${toErrorMessage(error)}`,
+	});
+
+const writeDailyHighlightToDisk = (
+	dataDir: string,
+	id: string,
+): Effect.Effect<void, string> =>
+	Effect.tryPromise({
+		try: async () => {
+			await mkdir(dataDir, { recursive: true });
+			await writeFile(
+				dailyHighlightFilePath(dataDir),
+				YAML.stringify({ id }),
+				"utf8",
+			);
+		},
+		catch: (error) =>
+			`TaskRepository failed to write daily highlight ${id}: ${toErrorMessage(error)}`,
 	});
 
 const readTaskByIdFromDisk = (
@@ -341,7 +361,12 @@ const makeTaskRepositoryLive = (
 				yield* deleteTaskFromDisk(existing.path, id);
 				return { deleted: true } as const;
 			}),
-		setDailyHighlight: () => notImplemented("setDailyHighlight", dataDir),
+		setDailyHighlight: (id) =>
+			Effect.gen(function* () {
+				const existing = yield* readTaskByIdFromDisk(dataDir, id);
+				yield* writeDailyHighlightToDisk(dataDir, id);
+				return existing.task;
+			}),
 		listStale: () => notImplemented("listStale", dataDir),
 		listWorkLog: () => notImplemented("listWorkLog", dataDir),
 		createWorkLogEntry: () => notImplemented("createWorkLogEntry", dataDir),
