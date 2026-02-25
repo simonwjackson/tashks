@@ -30,7 +30,7 @@ while true; do
   echo "--- Iteration ${iteration} | $(date '+%H:%M:%S') | log: ${log_file} ---"
 
   set +e
-  nix run nixpkgs#bun -- x @openai/codex \
+  nix run nixpkgs#bun -- x @openai/codex exec \
     --dangerously-bypass-approvals-and-sandbox \
     --json \
     "$(cat "$PROMPT_FILE")" \
@@ -40,36 +40,59 @@ while true; do
         type=$(echo "$line" | jq -r '.type // empty' 2>/dev/null) || continue
 
         case "$type" in
-          message)
-            role=$(echo "$line" | jq -r '.role // empty' 2>/dev/null) || true
-            if [[ "$role" == "assistant" ]]; then
-              text=$(echo "$line" | jq -r '
-                .content // [] | map(select(.type == "text") | .text) | join("")
-              ' 2>/dev/null) || true
-              if [[ -n "$text" ]]; then
-                echo "$text"
-              fi
-            fi
+          # Lifecycle events
+          thread.started)
+            tid=$(echo "$line" | jq -r '.thread_id // empty' 2>/dev/null) || true
+            echo "[THREAD] $tid"
             ;;
-          command)
-            cmd=$(echo "$line" | jq -r '.command // empty' 2>/dev/null) || true
-            if [[ -n "$cmd" ]]; then
-              echo "[CMD] $cmd"
-            fi
+          turn.completed)
+            tokens=$(echo "$line" | jq -r '
+              .usage // {} | "in=\(.input_tokens // "?") out=\(.output_tokens // "?")"
+            ' 2>/dev/null) || true
+            echo "[TURN DONE] $tokens"
             ;;
-          command_output)
-            exit_status=$(echo "$line" | jq -r '.exit_code // empty' 2>/dev/null) || true
-            stdout=$(echo "$line" | jq -r '.stdout // empty' 2>/dev/null) || true
-            if [[ -n "$stdout" ]]; then
-              echo "$stdout" | head -20
-            fi
-            if [[ -n "$exit_status" && "$exit_status" != "0" ]]; then
-              echo "[EXIT $exit_status]"
-            fi
+          turn.failed)
+            echo "[TURN FAILED]"
+            echo "$line" | jq -r '.error // empty' 2>/dev/null || true
             ;;
-          error)
-            msg=$(echo "$line" | jq -r '.message // .error // empty' 2>/dev/null) || true
-            echo "[ERROR] $msg"
+
+          # Item events — extract useful content
+          item.completed)
+            item_type=$(echo "$line" | jq -r '.item.type // empty' 2>/dev/null) || true
+            case "$item_type" in
+              agent_message)
+                text=$(echo "$line" | jq -r '.item.text // empty' 2>/dev/null) || true
+                if [[ -n "$text" ]]; then
+                  echo "$text"
+                fi
+                ;;
+              command_execution)
+                cmd=$(echo "$line" | jq -r '.item.command // empty' 2>/dev/null) || true
+                exit_status=$(echo "$line" | jq -r '.item.exit_code // empty' 2>/dev/null) || true
+                echo "[CMD] $cmd"
+                if [[ -n "$exit_status" && "$exit_status" != "0" ]]; then
+                  echo "[EXIT $exit_status]"
+                fi
+                ;;
+              file_change)
+                file=$(echo "$line" | jq -r '.item.file // empty' 2>/dev/null) || true
+                echo "[FILE] $file"
+                ;;
+              reasoning)
+                echo "[REASONING]"
+                ;;
+              *)
+                echo "[ITEM] $item_type"
+                ;;
+            esac
+            ;;
+          item.started)
+            # Log starts silently — the .completed event has the content
+            ;;
+
+          # Catch-all for unknown events — don't swallow them
+          *)
+            echo "[EVENT:${type}]"
             ;;
         esac
       done
