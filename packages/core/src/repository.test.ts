@@ -72,6 +72,7 @@ const makeRepositoryService = (
 	getTask: () => unexpectedCall(),
 	createTask: () => unexpectedCall(),
 	updateTask: () => unexpectedCall(),
+	completeTask: () => unexpectedCall(),
 	deleteTask: () => unexpectedCall(),
 	setDailyHighlight: () => unexpectedCall(),
 	listStale: () => unexpectedCall(),
@@ -702,6 +703,7 @@ describe("TaskRepository service", () => {
 		);
 
 		expect(methodNames).toEqual([
+			"completeTask",
 			"createTask",
 			"createWorkLogEntry",
 			"deleteTask",
@@ -767,6 +769,86 @@ describe("TaskRepository service", () => {
 				repository.getTask("revive-unzen"),
 			);
 			expect(fetched).toEqual(updated);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("completeTask marks the task done and does not create recurrence for clock-driven tasks", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-complete-clock-"));
+		try {
+			await writeTaskFiles(dataDir, [
+				{
+					...baseTask(),
+					recurrence: "FREQ=DAILY",
+					recurrence_trigger: "clock",
+				},
+			]);
+
+			const completed = await runRepository(dataDir, (repository) =>
+				repository.completeTask("revive-unzen"),
+			);
+
+			expect(completed.status).toBe("done");
+			expect(completed.updated).toBe(todayIso());
+			expect(completed.completed_at).not.toBeNull();
+
+			const fetched = await runRepository(dataDir, (repository) =>
+				repository.getTask("revive-unzen"),
+			);
+			expect(fetched).toEqual(completed);
+
+			const listed = await runRepository(dataDir, (repository) =>
+				repository.listTasks(),
+			);
+			expect(listed).toHaveLength(1);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("completeTask creates the next completion-driven recurrence instance", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-complete-recur-"));
+		try {
+			await writeTaskFiles(dataDir, [
+				{
+					...baseTask(),
+					recurrence: "FREQ=WEEKLY;INTERVAL=2",
+					recurrence_trigger: "completion",
+					recurrence_last_generated: null,
+				},
+			]);
+
+			const completed = await runRepository(dataDir, (repository) =>
+				repository.completeTask("revive-unzen"),
+			);
+			expect(completed.status).toBe("done");
+			expect(completed.completed_at).not.toBeNull();
+
+			const listed = await runRepository(dataDir, (repository) =>
+				repository.listTasks(),
+			);
+			expect(listed).toHaveLength(2);
+
+			const next = listed.find((task) => task.id !== "revive-unzen");
+			expect(next).toBeDefined();
+			if (next === undefined || completed.completed_at === null) {
+				throw new Error("Expected completed task and next recurrence task");
+			}
+
+			const completionDate = completed.completed_at.slice(0, 10);
+			expect(next.id).toMatch(/^revive-unzen-server-[a-z0-9]{6}$/);
+			expect(next.status).toBe("active");
+			expect(next.created).toBe(completionDate);
+			expect(next.updated).toBe(completionDate);
+			expect(next.due).toBe(addDaysToIsoDate("2026-03-01", 14));
+			expect(next.completed_at).toBeNull();
+			expect(next.last_surfaced).toBeNull();
+			expect(next.defer_until).toBe(addDaysToIsoDate(completionDate, 14));
+			expect(next.nudge_count).toBe(0);
+			expect(next.recurrence).toBe("FREQ=WEEKLY;INTERVAL=2");
+			expect(next.recurrence_trigger).toBe("completion");
+			expect(next.recurrence_last_generated).toBe(completed.completed_at);
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}

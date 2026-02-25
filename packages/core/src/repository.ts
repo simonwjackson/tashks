@@ -365,6 +365,164 @@ const toWorkLogDate = (startedAt: string): Effect.Effect<string, string> =>
 			`TaskRepository failed to derive work log date: ${toErrorMessage(error)}`,
 	});
 
+interface CompletionRecurrenceInterval {
+	readonly frequency: "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
+	readonly interval: number;
+}
+
+const parseCompletionRecurrenceInterval = (
+	recurrence: string,
+): Effect.Effect<CompletionRecurrenceInterval, string> =>
+	Effect.try({
+		try: () => {
+			const segments = recurrence
+				.split(";")
+				.map((segment) => segment.trim())
+				.filter((segment) => segment.length > 0);
+
+			const fields = new Map<string, string>();
+			for (const segment of segments) {
+				const separator = segment.indexOf("=");
+				if (separator <= 0 || separator === segment.length - 1) {
+					continue;
+				}
+
+				const key = segment.slice(0, separator).toUpperCase();
+				const value = segment.slice(separator + 1).toUpperCase();
+				fields.set(key, value);
+			}
+
+			const frequency = fields.get("FREQ");
+			if (
+				frequency !== "DAILY" &&
+				frequency !== "WEEKLY" &&
+				frequency !== "MONTHLY" &&
+				frequency !== "YEARLY"
+			) {
+				throw new Error(
+					`Unsupported completion recurrence frequency: ${String(frequency)}`,
+				);
+			}
+
+			const intervalValue = fields.get("INTERVAL") ?? "1";
+			const interval = Number.parseInt(intervalValue, 10);
+			if (!Number.isFinite(interval) || interval < 1) {
+				throw new Error(`Invalid recurrence interval: ${intervalValue}`);
+			}
+
+			return { frequency, interval } as const;
+		},
+		catch: (error) =>
+			`TaskRepository failed to parse recurrence interval: ${toErrorMessage(error)}`,
+	});
+
+const addRecurrenceInterval = (
+	date: Date,
+	recurrenceInterval: CompletionRecurrenceInterval,
+): Date => {
+	const next = new Date(date.getTime());
+
+	switch (recurrenceInterval.frequency) {
+		case "DAILY":
+			next.setUTCDate(next.getUTCDate() + recurrenceInterval.interval);
+			break;
+		case "WEEKLY":
+			next.setUTCDate(next.getUTCDate() + recurrenceInterval.interval * 7);
+			break;
+		case "MONTHLY":
+			next.setUTCMonth(next.getUTCMonth() + recurrenceInterval.interval);
+			break;
+		case "YEARLY":
+			next.setUTCFullYear(next.getUTCFullYear() + recurrenceInterval.interval);
+			break;
+	}
+
+	return next;
+};
+
+const shiftIsoDateByRecurrenceInterval = (
+	date: string,
+	recurrenceInterval: CompletionRecurrenceInterval,
+): Effect.Effect<string, string> =>
+	Effect.try({
+		try: () => {
+			const parsed = new Date(`${date}T00:00:00.000Z`);
+			if (Number.isNaN(parsed.getTime())) {
+				throw new Error(`Invalid ISO date: ${date}`);
+			}
+
+			return addRecurrenceInterval(parsed, recurrenceInterval)
+				.toISOString()
+				.slice(0, 10);
+		},
+		catch: (error) =>
+			`TaskRepository failed to shift ISO date: ${toErrorMessage(error)}`,
+	});
+
+const shiftIsoDateTimeToDateByRecurrenceInterval = (
+	dateTime: string,
+	recurrenceInterval: CompletionRecurrenceInterval,
+): Effect.Effect<string, string> =>
+	Effect.try({
+		try: () => {
+			const parsed = new Date(dateTime);
+			if (Number.isNaN(parsed.getTime())) {
+				throw new Error(`Invalid ISO datetime: ${dateTime}`);
+			}
+
+			return addRecurrenceInterval(parsed, recurrenceInterval)
+				.toISOString()
+				.slice(0, 10);
+		},
+		catch: (error) =>
+			`TaskRepository failed to shift ISO datetime: ${toErrorMessage(error)}`,
+	});
+
+const buildCompletionRecurrenceTask = (
+	completedTask: Task,
+	completedAt: string,
+): Effect.Effect<Task | null, string> => {
+	const recurrence = completedTask.recurrence;
+	if (
+		recurrence === null ||
+		completedTask.recurrence_trigger !== "completion"
+	) {
+		return Effect.succeed(null);
+	}
+
+	return Effect.gen(function* () {
+		const recurrenceInterval =
+			yield* parseCompletionRecurrenceInterval(recurrence);
+		const deferUntil = yield* shiftIsoDateTimeToDateByRecurrenceInterval(
+			completedAt,
+			recurrenceInterval,
+		);
+		const shiftedDue =
+			completedTask.due === null
+				? null
+				: yield* shiftIsoDateByRecurrenceInterval(
+						completedTask.due,
+						recurrenceInterval,
+					);
+		const completedDate = completedAt.slice(0, 10);
+
+		return decodeTask({
+			...completedTask,
+			id: generateTaskId(completedTask.title),
+			status: "active",
+			created: completedDate,
+			updated: completedDate,
+			due: shiftedDue,
+			actual_minutes: null,
+			completed_at: null,
+			last_surfaced: null,
+			defer_until: deferUntil,
+			nudge_count: 0,
+			recurrence_last_generated: completedAt,
+		});
+	});
+};
+
 const byStartedAtDescThenId = (a: WorkLogEntry, b: WorkLogEntry): number => {
 	const byStartedAtDesc = b.started_at.localeCompare(a.started_at);
 	if (byStartedAtDesc !== 0) {
@@ -460,6 +618,7 @@ export interface TaskRepositoryService {
 		id: string,
 		patch: TaskPatch,
 	) => Effect.Effect<Task, string>;
+	readonly completeTask: (id: string) => Effect.Effect<Task, string>;
 	readonly deleteTask: (id: string) => Effect.Effect<DeleteResult, string>;
 	readonly setDailyHighlight: (id: string) => Effect.Effect<Task, string>;
 	readonly listStale: (days: number) => Effect.Effect<Array<Task>, string>;
@@ -520,6 +679,36 @@ const makeTaskRepositoryLive = (
 				const updated = applyTaskPatch(existing.task, patch);
 				yield* writeTaskToDisk(existing.path, updated);
 				return updated;
+			}),
+		completeTask: (id) =>
+			Effect.gen(function* () {
+				const existing = yield* readTaskByIdFromDisk(dataDir, id);
+				const completedAt = new Date().toISOString();
+				const completedDate = completedAt.slice(0, 10);
+
+				const completedTask = decodeTask({
+					...existing.task,
+					status: "done",
+					updated: completedDate,
+					completed_at: completedAt,
+				});
+
+				const nextRecurringTask = yield* buildCompletionRecurrenceTask(
+					completedTask,
+					completedAt,
+				);
+
+				yield* writeTaskToDisk(existing.path, completedTask);
+
+				if (nextRecurringTask !== null) {
+					yield* ensureTasksDir(dataDir);
+					yield* writeTaskToDisk(
+						taskFilePath(dataDir, nextRecurringTask.id),
+						nextRecurringTask,
+					);
+				}
+
+				return completedTask;
 			}),
 		deleteTask: (id) =>
 			Effect.gen(function* () {
