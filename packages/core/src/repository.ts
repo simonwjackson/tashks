@@ -6,6 +6,7 @@ import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import { rrulestr } from "rrule";
 import YAML from "yaml";
 import {
 	Task as TaskSchema,
@@ -523,6 +524,156 @@ const buildCompletionRecurrenceTask = (
 	});
 };
 
+const toIsoDateTime = (
+	value: Date,
+	label: string,
+): Effect.Effect<string, string> =>
+	Effect.try({
+		try: () => {
+			const timestamp = value.getTime();
+			if (Number.isNaN(timestamp)) {
+				throw new Error(`Invalid ${label} datetime`);
+			}
+			return value.toISOString();
+		},
+		catch: (error) =>
+			`TaskRepository failed to normalize ${label} datetime: ${toErrorMessage(error)}`,
+	});
+
+const parseIsoDateToUtcStart = (
+	value: string,
+	label: string,
+): Effect.Effect<Date, string> =>
+	Effect.try({
+		try: () => {
+			const parsed = new Date(`${value}T00:00:00.000Z`);
+			if (Number.isNaN(parsed.getTime())) {
+				throw new Error(`Invalid ISO date: ${value}`);
+			}
+			return parsed;
+		},
+		catch: (error) =>
+			`TaskRepository failed to parse ${label} date: ${toErrorMessage(error)}`,
+	});
+
+const parseIsoDateTime = (
+	value: string,
+	label: string,
+): Effect.Effect<Date, string> =>
+	Effect.try({
+		try: () => {
+			const parsed = new Date(value);
+			if (Number.isNaN(parsed.getTime())) {
+				throw new Error(`Invalid ISO datetime: ${value}`);
+			}
+			return parsed;
+		},
+		catch: (error) =>
+			`TaskRepository failed to parse ${label} datetime: ${toErrorMessage(error)}`,
+	});
+
+const isClockRecurrenceDue = (
+	task: Task,
+	now: Date,
+): Effect.Effect<boolean, string> =>
+	Effect.gen(function* () {
+		const recurrence = task.recurrence;
+		if (recurrence === null || task.recurrence_trigger !== "clock") {
+			return false;
+		}
+
+		const nowIso = yield* toIsoDateTime(now, "recurrence check");
+		const nowDate = new Date(nowIso);
+		const createdAt = yield* parseIsoDateToUtcStart(
+			task.created,
+			"task created",
+		);
+		const lastGeneratedAt =
+			task.recurrence_last_generated === null
+				? createdAt
+				: yield* parseIsoDateTime(
+						task.recurrence_last_generated,
+						"recurrence_last_generated",
+					);
+		const rule = yield* Effect.try({
+			try: () => rrulestr(recurrence, { dtstart: createdAt, forceset: false }),
+			catch: (error) =>
+				`TaskRepository failed to parse recurrence for ${task.id}: ${toErrorMessage(error)}`,
+		});
+		const nextOccurrence = rule.after(lastGeneratedAt, false);
+
+		return (
+			nextOccurrence !== null && nextOccurrence.getTime() <= nowDate.getTime()
+		);
+	});
+
+const generateNextClockRecurrence = (
+	dataDir: string,
+	existing: { readonly path: string; readonly task: Task },
+	generatedAt: Date,
+): Effect.Effect<
+	{ readonly nextTask: Task; readonly replacedId: string | null },
+	string
+> =>
+	Effect.gen(function* () {
+		const recurrence = existing.task.recurrence;
+		if (recurrence === null) {
+			return yield* Effect.fail(
+				`TaskRepository failed to generate next recurrence for ${existing.task.id}: task is not recurring`,
+			);
+		}
+
+		const generatedAtIso = yield* toIsoDateTime(
+			generatedAt,
+			"recurrence generation",
+		);
+		const generatedDate = generatedAtIso.slice(0, 10);
+		const nextTask = decodeTask({
+			...existing.task,
+			id: generateTaskId(existing.task.title),
+			status: "active",
+			created: generatedDate,
+			updated: generatedDate,
+			actual_minutes: null,
+			completed_at: null,
+			last_surfaced: null,
+			defer_until: null,
+			nudge_count: 0,
+			recurrence_last_generated: generatedAtIso,
+		});
+
+		let replacedId: string | null = null;
+
+		if (
+			existing.task.recurrence_strategy === "replace" &&
+			existing.task.status !== "done" &&
+			existing.task.status !== "dropped"
+		) {
+			const droppedTask = decodeTask({
+				...existing.task,
+				status: "dropped",
+				updated: generatedDate,
+				recurrence_last_generated: generatedAtIso,
+			});
+			yield* writeTaskToDisk(existing.path, droppedTask);
+			replacedId = existing.task.id;
+		}
+
+		if (existing.task.recurrence_strategy === "accumulate") {
+			const updatedCurrent = decodeTask({
+				...existing.task,
+				updated: generatedDate,
+				recurrence_last_generated: generatedAtIso,
+			});
+			yield* writeTaskToDisk(existing.path, updatedCurrent);
+		}
+
+		yield* ensureTasksDir(dataDir);
+		yield* writeTaskToDisk(taskFilePath(dataDir, nextTask.id), nextTask);
+
+		return { nextTask, replacedId } as const;
+	});
+
 const byStartedAtDescThenId = (a: WorkLogEntry, b: WorkLogEntry): number => {
 	const byStartedAtDesc = b.started_at.localeCompare(a.started_at);
 	if (byStartedAtDesc !== 0) {
@@ -620,6 +771,12 @@ export interface TaskRepositoryService {
 	) => Effect.Effect<Task, string>;
 	readonly completeTask: (id: string) => Effect.Effect<Task, string>;
 	readonly generateNextRecurrence: (id: string) => Effect.Effect<Task, string>;
+	readonly processDueRecurrences: (
+		now: Date,
+	) => Effect.Effect<
+		{ readonly created: Array<Task>; readonly replaced: Array<string> },
+		string
+	>;
 	readonly deleteTask: (id: string) => Effect.Effect<DeleteResult, string>;
 	readonly setDailyHighlight: (id: string) => Effect.Effect<Task, string>;
 	readonly listStale: (days: number) => Effect.Effect<Array<Task>, string>;
@@ -714,46 +871,46 @@ const makeTaskRepositoryLive = (
 		generateNextRecurrence: (id) =>
 			Effect.gen(function* () {
 				const existing = yield* readTaskByIdFromDisk(dataDir, id);
-				const recurrence = existing.task.recurrence;
-				if (recurrence === null) {
-					return yield* Effect.fail(
-						`TaskRepository failed to generate next recurrence for ${id}: task is not recurring`,
+				const generated = yield* generateNextClockRecurrence(
+					dataDir,
+					existing,
+					new Date(),
+				);
+				return generated.nextTask;
+			}),
+		processDueRecurrences: (now) =>
+			Effect.gen(function* () {
+				const tasks = yield* readTasksFromDisk(dataDir);
+				const recurringTasks = tasks.filter(
+					(task) =>
+						task.recurrence !== null &&
+						task.recurrence_trigger === "clock" &&
+						task.status !== "done" &&
+						task.status !== "dropped",
+				);
+
+				const created: Array<Task> = [];
+				const replaced: Array<string> = [];
+
+				for (const task of recurringTasks) {
+					const due = yield* isClockRecurrenceDue(task, now);
+					if (!due) {
+						continue;
+					}
+
+					const existing = yield* readTaskByIdFromDisk(dataDir, task.id);
+					const generated = yield* generateNextClockRecurrence(
+						dataDir,
+						existing,
+						now,
 					);
+					created.push(generated.nextTask);
+					if (generated.replacedId !== null) {
+						replaced.push(generated.replacedId);
+					}
 				}
 
-				const generatedAt = new Date().toISOString();
-				const generatedDate = generatedAt.slice(0, 10);
-				const nextTask = decodeTask({
-					...existing.task,
-					id: generateTaskId(existing.task.title),
-					status: "active",
-					created: generatedDate,
-					updated: generatedDate,
-					actual_minutes: null,
-					completed_at: null,
-					last_surfaced: null,
-					defer_until: null,
-					nudge_count: 0,
-					recurrence_last_generated: generatedAt,
-				});
-
-				if (
-					existing.task.recurrence_strategy === "replace" &&
-					existing.task.status !== "done" &&
-					existing.task.status !== "dropped"
-				) {
-					const droppedTask = decodeTask({
-						...existing.task,
-						status: "dropped",
-						updated: generatedDate,
-					});
-					yield* writeTaskToDisk(existing.path, droppedTask);
-				}
-
-				yield* ensureTasksDir(dataDir);
-				yield* writeTaskToDisk(taskFilePath(dataDir, nextTask.id), nextTask);
-
-				return nextTask;
+				return { created, replaced } as const;
 			}),
 		deleteTask: (id) =>
 			Effect.gen(function* () {

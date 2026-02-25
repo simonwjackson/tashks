@@ -74,6 +74,7 @@ const makeRepositoryService = (
 	updateTask: () => unexpectedCall(),
 	completeTask: () => unexpectedCall(),
 	generateNextRecurrence: () => unexpectedCall(),
+	processDueRecurrences: () => unexpectedCall(),
 	deleteTask: () => unexpectedCall(),
 	setDailyHighlight: () => unexpectedCall(),
 	listStale: () => unexpectedCall(),
@@ -714,6 +715,7 @@ describe("TaskRepository service", () => {
 			"listStale",
 			"listTasks",
 			"listWorkLog",
+			"processDueRecurrences",
 			"setDailyHighlight",
 			"updateTask",
 			"updateWorkLogEntry",
@@ -929,6 +931,119 @@ describe("TaskRepository service", () => {
 				repository.listTasks(),
 			);
 			expect(listed).toHaveLength(2);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("processDueRecurrences creates due clock-driven tasks and reports replaced ids", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-process-due-replace-"));
+		try {
+			await writeTaskFiles(dataDir, [
+				{
+					...baseTask(),
+					id: "clock-replace",
+					title: "Clock replace",
+					recurrence: "FREQ=DAILY",
+					recurrence_trigger: "clock",
+					recurrence_strategy: "replace",
+					recurrence_last_generated: "2026-02-24T08:00:00Z",
+					status: "active",
+				},
+				{
+					...baseTask(),
+					id: "completion-driven",
+					title: "Completion driven",
+					recurrence: "FREQ=DAILY",
+					recurrence_trigger: "completion",
+					recurrence_strategy: "replace",
+					recurrence_last_generated: "2026-02-24T08:00:00Z",
+					status: "active",
+				},
+				{
+					...baseTask(),
+					id: "done-clock",
+					title: "Done clock",
+					recurrence: "FREQ=DAILY",
+					recurrence_trigger: "clock",
+					recurrence_strategy: "replace",
+					recurrence_last_generated: "2026-02-24T08:00:00Z",
+					status: "done",
+				},
+			]);
+
+			const now = new Date("2026-02-25T09:30:00.000Z");
+			const result = await runRepository(dataDir, (repository) =>
+				repository.processDueRecurrences(now),
+			);
+
+			expect(result.replaced).toEqual(["clock-replace"]);
+			expect(result.created).toHaveLength(1);
+			expect(result.created[0]?.id).toMatch(/^clock-replace-[a-z0-9]{6}$/);
+			expect(result.created[0]?.recurrence_last_generated).toBe(
+				"2026-02-25T09:30:00.000Z",
+			);
+
+			const replacedTask = await runRepository(dataDir, (repository) =>
+				repository.getTask("clock-replace"),
+			);
+			expect(replacedTask.status).toBe("dropped");
+			expect(replacedTask.recurrence_last_generated).toBe(
+				"2026-02-25T09:30:00.000Z",
+			);
+
+			const allTasks = await runRepository(dataDir, (repository) =>
+				repository.listTasks(),
+			);
+			expect(allTasks).toHaveLength(4);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("processDueRecurrences is idempotent for the same run timestamp", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-process-due-idem-"));
+		try {
+			await writeTaskFiles(dataDir, [
+				{
+					...baseTask(),
+					id: "clock-accumulate",
+					title: "Clock accumulate",
+					recurrence: "FREQ=DAILY",
+					recurrence_trigger: "clock",
+					recurrence_strategy: "accumulate",
+					recurrence_last_generated: "2026-02-24T08:00:00Z",
+					status: "active",
+				},
+			]);
+
+			const now = new Date("2026-02-25T09:30:00.000Z");
+			const first = await runRepository(dataDir, (repository) =>
+				repository.processDueRecurrences(now),
+			);
+			expect(first.created).toHaveLength(1);
+			expect(first.replaced).toEqual([]);
+
+			const second = await runRepository(dataDir, (repository) =>
+				repository.processDueRecurrences(now),
+			);
+			expect(second).toEqual({
+				created: [],
+				replaced: [],
+			});
+
+			const original = await runRepository(dataDir, (repository) =>
+				repository.getTask("clock-accumulate"),
+			);
+			expect(original.status).toBe("active");
+			expect(original.recurrence_last_generated).toBe(
+				"2026-02-25T09:30:00.000Z",
+			);
+
+			const allTasks = await runRepository(dataDir, (repository) =>
+				repository.listTasks(),
+			);
+			expect(allTasks).toHaveLength(2);
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}
