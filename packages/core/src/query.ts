@@ -1,4 +1,4 @@
-import type { Task } from "./schema.js";
+import type { Task, TaskEnergy } from "./schema.js";
 
 const addDays = (date: string, days: number): string => {
 	const next = new Date(`${date}T00:00:00.000Z`);
@@ -40,7 +40,21 @@ export const isDeferred =
 	(task: Task): boolean =>
 		task.defer_until !== null && task.defer_until > today;
 
-// TODO: Energy/context filters — hasEnergy, hasTag, hasProject
+export const hasEnergy =
+	(level: TaskEnergy) =>
+	(task: Task): boolean =>
+		task.energy === level;
+
+export const hasTag =
+	(tag: string) =>
+	(task: Task): boolean =>
+		task.tags.includes(tag);
+
+export const hasProject =
+	(project: string) =>
+	(task: Task): boolean =>
+		task.project === project;
+
 // TODO: Staleness detection — isStalerThan
 // TODO: Completion queries — wasCompletedOn, wasCompletedBetween
 // TODO: Sort helpers — byDueAsc, byEnergyAsc, byCreatedAsc, byUpdatedDescThenTitle
