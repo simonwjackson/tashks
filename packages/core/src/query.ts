@@ -103,5 +103,41 @@ export const wasCompletedBetween =
 		return completed >= start && completed <= end;
 	};
 
-// TODO: Sort helpers — byDueAsc, byEnergyAsc, byCreatedAsc, byUpdatedDescThenTitle
+const energyRank: Record<TaskEnergy, number> = {
+	low: 0,
+	medium: 1,
+	high: 2,
+};
+
+export const byDueAsc = (a: Task, b: Task): number => {
+	if (a.due === null && b.due === null) {
+		return 0;
+	}
+
+	if (a.due === null) {
+		return 1;
+	}
+
+	if (b.due === null) {
+		return -1;
+	}
+
+	return a.due.localeCompare(b.due);
+};
+
+export const byEnergyAsc = (a: Task, b: Task): number =>
+	energyRank[a.energy] - energyRank[b.energy];
+
+export const byCreatedAsc = (a: Task, b: Task): number =>
+	a.created.localeCompare(b.created);
+
+export const byUpdatedDescThenTitle = (a: Task, b: Task): number => {
+	const byUpdatedDesc = b.updated.localeCompare(a.updated);
+	if (byUpdatedDesc !== 0) {
+		return byUpdatedDesc;
+	}
+
+	return a.title.localeCompare(b.title);
+};
+
 // TODO: Perspective loader — read perspectives.yaml and apply filters/sorts
