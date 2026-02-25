@@ -30,7 +30,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] `parseTaskRecord(unknown)` — validate raw YAML data against Task schema — *needs:* Phase 1
 - [x] `parseWorkLogRecord(unknown)` — validate raw YAML data against WorkLogEntry schema — *needs:* Phase 1
 - [x] `applyWorkLogPatch(entry, patch)` — merge patch — *needs:* Phase 1
-- [ ] Add tests for all pure helpers
+- [x] Add tests for all pure helpers
 
 ## Phase 3: Query Layer
 
