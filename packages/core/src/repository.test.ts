@@ -26,6 +26,7 @@ import {
 	TaskRepository,
 	TaskRepositoryLive,
 	type ListTasksFilters,
+	type TaskRepositoryLiveOptions,
 	type TaskRepositoryService,
 	todayIso,
 } from "./repository.js";
@@ -119,23 +120,34 @@ const addDaysToIsoDate = (date: string, days: number): string => {
 const runRepository = <A>(
 	dataDir: string,
 	run: (repository: TaskRepositoryService) => Effect.Effect<A, string>,
+): Promise<A> => runRepositoryWithOptions({ dataDir }, run);
+
+const runRepositoryWithOptions = <A>(
+	options: TaskRepositoryLiveOptions,
+	run: (repository: TaskRepositoryService) => Effect.Effect<A, string>,
 ): Promise<A> =>
 	Effect.runPromise(
 		Effect.gen(function* () {
 			const repository = yield* TaskRepository;
 			return yield* run(repository);
-		}).pipe(Effect.provide(TaskRepositoryLive({ dataDir }))),
+		}).pipe(Effect.provide(TaskRepositoryLive(options))),
 	);
 
 const runRepositoryExit = <A>(
 	dataDir: string,
 	run: (repository: TaskRepositoryService) => Effect.Effect<A, string>,
 ): Promise<Exit.Exit<A, string>> =>
+	runRepositoryWithOptionsExit({ dataDir }, run);
+
+const runRepositoryWithOptionsExit = <A>(
+	options: TaskRepositoryLiveOptions,
+	run: (repository: TaskRepositoryService) => Effect.Effect<A, string>,
+): Promise<Exit.Exit<A, string>> =>
 	Effect.runPromiseExit(
 		Effect.gen(function* () {
 			const repository = yield* TaskRepository;
 			return yield* run(repository);
-		}).pipe(Effect.provide(TaskRepositoryLive({ dataDir }))),
+		}).pipe(Effect.provide(TaskRepositoryLive(options))),
 	);
 
 const writeTaskFiles = async (
@@ -181,6 +193,17 @@ const writeRawYamlFile = async (
 ): Promise<void> => {
 	await mkdir(directory, { recursive: true });
 	await writeFile(join(directory, fileName), source, "utf8");
+};
+
+const writeExecutableHook = async (
+	hooksDir: string,
+	fileName: string,
+	source: string,
+): Promise<void> => {
+	await mkdir(hooksDir, { recursive: true });
+	const hookPath = join(hooksDir, fileName);
+	await writeFile(hookPath, source, "utf8");
+	await chmod(hookPath, 0o755);
 };
 
 describe("repository pure helpers", () => {
@@ -878,6 +901,148 @@ describe("TaskRepository service", () => {
 				repository.getTask("revive-unzen"),
 			);
 			expect(fetched).toEqual(updated);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("createTask applies on-create mutating hooks in order", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-create-hook-"));
+		const hooksDir = join(dataDir, "hooks");
+		try {
+			await writeExecutableHook(
+				hooksDir,
+				"on-create",
+				`#!/usr/bin/env node
+const fs = require("node:fs");
+const task = JSON.parse(fs.readFileSync(0, "utf8"));
+task.tags = [...task.tags, "hooked"];
+task.context = "Mutated by on-create";
+process.stdout.write(JSON.stringify(task));
+`,
+			);
+
+			const created = await runRepositoryWithOptions(
+				{ dataDir, hooksDir },
+				(repository) =>
+					repository.createTask({
+						title: "Capture outage notes",
+						area: "work",
+					}),
+			);
+
+			expect(created.tags).toEqual(["hooked"]);
+			expect(created.context).toBe("Mutated by on-create");
+
+			const storedSource = await readFile(
+				join(dataDir, "tasks", `${created.id}.yaml`),
+				"utf8",
+			);
+			expect(YAML.parse(storedSource)).toEqual(created);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("updateTask applies on-modify mutating hooks using old and new task payload", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-update-hook-"));
+		const hooksDir = join(dataDir, "hooks");
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+			await writeExecutableHook(
+				hooksDir,
+				"on-modify",
+				`#!/usr/bin/env node
+const fs = require("node:fs");
+const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+payload.new.context = payload.old.title + " -> " + payload.new.title;
+payload.new.tags = [...payload.new.tags, "modified-hook"];
+process.stdout.write(JSON.stringify(payload.new));
+`,
+			);
+
+			const updated = await runRepositoryWithOptions(
+				{ dataDir, hooksDir },
+				(repository) =>
+					repository.updateTask("revive-unzen", {
+						title: "Repair array",
+					}),
+			);
+
+			expect(updated.title).toBe("Repair array");
+			expect(updated.context).toBe("Revive unzen server -> Repair array");
+			expect(updated.tags).toEqual(["hardware", "weekend", "modified-hook"]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("createTask aborts when an on-create hook exits non-zero", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-create-hook-fail-"));
+		const hooksDir = join(dataDir, "hooks");
+		try {
+			await writeExecutableHook(
+				hooksDir,
+				"on-create",
+				`#!/usr/bin/env bash
+echo "create hook rejected task" >&2
+exit 23
+`,
+			);
+
+			const result = await runRepositoryWithOptionsExit(
+				{ dataDir, hooksDir },
+				(repository) =>
+					repository.createTask({
+						title: "Should fail",
+					}),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+
+			if (Exit.isFailure(result)) {
+				const failure = Option.getOrNull(Cause.failureOption(result.cause));
+				expect(failure).toContain("create hook rejected task");
+			}
+
+			const listed = await runListTasks(dataDir);
+			expect(listed).toEqual([]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("updateTask aborts when an on-modify hook exits non-zero", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-update-hook-fail-"));
+		const hooksDir = join(dataDir, "hooks");
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+			await writeExecutableHook(
+				hooksDir,
+				"on-modify",
+				`#!/usr/bin/env bash
+echo "modify hook rejected patch" >&2
+exit 19
+`,
+			);
+
+			const result = await runRepositoryWithOptionsExit(
+				{ dataDir, hooksDir },
+				(repository) =>
+					repository.updateTask("revive-unzen", {
+						title: "Repair array",
+					}),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+
+			if (Exit.isFailure(result)) {
+				const failure = Option.getOrNull(Cause.failureOption(result.cause));
+				expect(failure).toContain("modify hook rejected patch");
+			}
+
+			const fetched = await runRepository(dataDir, (repository) =>
+				repository.getTask("revive-unzen"),
+			);
+			expect(fetched.title).toBe("Revive unzen server");
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}

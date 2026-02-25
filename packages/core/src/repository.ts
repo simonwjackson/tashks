@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
 import {
 	access,
@@ -860,6 +861,119 @@ export const discoverHooksForEvent = (
 	});
 };
 
+type MutatingHookEvent = "create" | "modify";
+
+const parseTaskFromHookStdout = (
+	event: MutatingHookEvent,
+	hookPath: string,
+	stdout: string,
+): Effect.Effect<Task, string> =>
+	Effect.try({
+		try: () => decodeTask(JSON.parse(stdout)),
+		catch: (error) =>
+			`TaskRepository hook ${hookPath} returned invalid JSON for on-${event}: ${toErrorMessage(error)}`,
+	});
+
+const runHookExecutable = (
+	hookPath: string,
+	stdin: string,
+): Effect.Effect<string, string> =>
+	Effect.gen(function* () {
+		const result = yield* Effect.try({
+			try: () =>
+				spawnSync(hookPath, [], {
+					input: stdin,
+					encoding: "utf8",
+					stdio: ["pipe", "pipe", "pipe"],
+				}),
+			catch: (error) =>
+				`TaskRepository failed to execute hook ${hookPath}: ${toErrorMessage(error)}`,
+		});
+
+		if (result.error !== undefined) {
+			return yield* Effect.fail(
+				`TaskRepository failed to execute hook ${hookPath}: ${toErrorMessage(result.error)}`,
+			);
+		}
+
+		if (result.status !== 0) {
+			const stderr =
+				typeof result.stderr === "string" ? result.stderr.trim() : "";
+			const signal =
+				result.signal !== null ? `terminated by signal ${result.signal}` : null;
+			const status =
+				result.status === null
+					? "unknown"
+					: `exited with code ${result.status}`;
+			const details = stderr.length > 0 ? stderr : (signal ?? status);
+
+			return yield* Effect.fail(
+				`TaskRepository hook ${hookPath} failed: ${details}`,
+			);
+		}
+
+		return typeof result.stdout === "string" ? result.stdout : "";
+	});
+
+const runCreateHooks = (
+	task: Task,
+	options: HookDiscoveryOptions,
+): Effect.Effect<Task, string> =>
+	Effect.gen(function* () {
+		const hooks = yield* discoverHooksForEvent("create", options);
+		let currentTask = task;
+
+		for (const hookPath of hooks) {
+			const stdout = yield* runHookExecutable(
+				hookPath,
+				JSON.stringify(currentTask),
+			);
+
+			if (stdout.trim().length === 0) {
+				continue;
+			}
+
+			currentTask = yield* parseTaskFromHookStdout("create", hookPath, stdout);
+		}
+
+		return currentTask;
+	});
+
+const runModifyHooks = (
+	oldTask: Task,
+	newTask: Task,
+	options: HookDiscoveryOptions,
+): Effect.Effect<Task, string> =>
+	Effect.gen(function* () {
+		const hooks = yield* discoverHooksForEvent("modify", options);
+		let currentTask = newTask;
+
+		for (const hookPath of hooks) {
+			const stdout = yield* runHookExecutable(
+				hookPath,
+				JSON.stringify({ old: oldTask, new: currentTask }),
+			);
+
+			if (stdout.trim().length === 0) {
+				continue;
+			}
+
+			const hookedTask = yield* parseTaskFromHookStdout(
+				"modify",
+				hookPath,
+				stdout,
+			);
+			if (hookedTask.id !== oldTask.id) {
+				return yield* Effect.fail(
+					`TaskRepository hook ${hookPath} failed: on-modify hooks cannot change task id`,
+				);
+			}
+			currentTask = hookedTask;
+		}
+
+		return currentTask;
+	});
+
 export interface TaskRepositoryService {
 	readonly listTasks: (
 		filters?: ListTasksFilters,
@@ -903,6 +1017,8 @@ export class TaskRepository extends Context.Tag("TaskRepository")<
 
 export interface TaskRepositoryLiveOptions {
 	readonly dataDir?: string;
+	readonly hooksDir?: string;
+	readonly hookEnv?: NodeJS.ProcessEnv;
 }
 
 const defaultDataDir = (): string => {
@@ -916,6 +1032,10 @@ const makeTaskRepositoryLive = (
 	options: TaskRepositoryLiveOptions = {},
 ): TaskRepositoryService => {
 	const dataDir = options.dataDir ?? defaultDataDir();
+	const hookDiscoveryOptions: HookDiscoveryOptions = {
+		hooksDir: options.hooksDir,
+		env: options.hookEnv,
+	};
 
 	return {
 		listTasks: (filters) =>
@@ -928,16 +1048,27 @@ const makeTaskRepositoryLive = (
 			Effect.gen(function* () {
 				yield* ensureTasksDir(dataDir);
 				const created = createTaskFromInput(input);
-				const path = taskFilePath(dataDir, created.id);
-				yield* writeTaskToDisk(path, created);
-				return created;
+				const taskFromHooks = yield* runCreateHooks(
+					created,
+					hookDiscoveryOptions,
+				);
+				yield* writeTaskToDisk(
+					taskFilePath(dataDir, taskFromHooks.id),
+					taskFromHooks,
+				);
+				return taskFromHooks;
 			}),
 		updateTask: (id, patch) =>
 			Effect.gen(function* () {
 				const existing = yield* readTaskByIdFromDisk(dataDir, id);
 				const updated = applyTaskPatch(existing.task, patch);
-				yield* writeTaskToDisk(existing.path, updated);
-				return updated;
+				const taskFromHooks = yield* runModifyHooks(
+					existing.task,
+					updated,
+					hookDiscoveryOptions,
+				);
+				yield* writeTaskToDisk(existing.path, taskFromHooks);
+				return taskFromHooks;
 			}),
 		completeTask: (id) =>
 			Effect.gen(function* () {
