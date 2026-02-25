@@ -1,4 +1,24 @@
-// TODO: Filter predicates — isBlocked, isUnblocked, isDueBefore, isDueThisWeek, isDeferred
+import type { Task } from "./schema.js";
+
+export const isBlocked = (task: Task, allTasks: Task[]): boolean => {
+	if (task.blocked_by.length === 0) {
+		return false;
+	}
+
+	const taskById = new Map(
+		allTasks.map((candidate) => [candidate.id, candidate]),
+	);
+
+	return task.blocked_by.some((blockerId) => {
+		const blocker = taskById.get(blockerId);
+		return blocker !== undefined && blocker.status !== "done";
+	});
+};
+
+export const isUnblocked = (task: Task, allTasks: Task[]): boolean =>
+	!isBlocked(task, allTasks);
+
+// TODO: Filter predicates — isDueBefore, isDueThisWeek, isDeferred
 // TODO: Energy/context filters — hasEnergy, hasTag, hasProject
 // TODO: Staleness detection — isStalerThan
 // TODO: Completion queries — wasCompletedOn, wasCompletedBetween
