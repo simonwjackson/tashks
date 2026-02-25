@@ -265,6 +265,30 @@
       </div>
 
       <div class="terminal" data-script='[
+        {"type":"input","text":"tashks list --status active | jq \u0027.[].title\u0027"},
+        {"type":"output","text":"\"Write landing page\"\n\"Review PR\""}
+      ]'>
+        <div class="terminal-bar">
+          <span class="terminal-dot red"></span>
+          <span class="terminal-dot yellow"></span>
+          <span class="terminal-dot green"></span>
+        </div>
+        <div class="terminal-body"></div>
+      </div>
+
+      <div class="terminal" data-script='[
+        {"type":"input","text":"tashks list --status active | jtbl"},
+        {"type":"output","text":"id      title                area   energy\n──────  ───────────────────  ─────  ──────\na1b2c3  Write landing page   code   low\nd4e5f6  Review PR            work   medium"}
+      ]'>
+        <div class="terminal-bar">
+          <span class="terminal-dot red"></span>
+          <span class="terminal-dot yellow"></span>
+          <span class="terminal-dot green"></span>
+        </div>
+        <div class="terminal-body"></div>
+      </div>
+
+      <div class="terminal" data-script='[
         {"type":"input","text":"tashks perspective morning"},
         {"type":"output","text":"[{\"id\":\"g7h8i9\",\"title\":\"Water plants\",\"energy\":\"low\"},\n {\"id\":\"a1b2c3\",\"title\":\"Write landing page\",\"energy\":\"low\"}]"}
       ]'>

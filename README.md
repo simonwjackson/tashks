@@ -36,6 +36,24 @@ $ tashks complete d4e5f6
 {"id":"d4e5f6","title":"Review PR","status":"done","completed_at":"2026-02-25"}
 ```
 
+### Pipe to jq
+
+```sh
+$ tashks list --status active | jq '.[].title'
+"Write landing page"
+"Review PR"
+```
+
+### Pipe to jtbl
+
+```sh
+$ tashks list --status active | jtbl
+id      title                area   energy
+──────  ───────────────────  ─────  ──────
+a1b2c3  Write landing page   code   low
+d4e5f6  Review PR            work   medium
+```
+
 ### Perspective view
 
 ```sh
