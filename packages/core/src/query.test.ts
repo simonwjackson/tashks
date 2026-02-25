@@ -22,6 +22,7 @@ import {
 	isDueThisWeek,
 	isUnblocked,
 	loadPerspectiveConfig,
+	resolveRelativeDate,
 	wasCompletedBetween,
 	wasCompletedOn,
 } from "./query.js";
@@ -453,6 +454,22 @@ describe("query sort helpers", () => {
 	});
 });
 
+describe("relative date resolution", () => {
+	it("resolves today and +Nd expressions", () => {
+		expect(resolveRelativeDate("today", "2026-02-25")).toBe("2026-02-25");
+		expect(resolveRelativeDate("+7d", "2026-02-25")).toBe("2026-03-04");
+	});
+
+	it("passes through absolute ISO dates", () => {
+		expect(resolveRelativeDate("2026-03-01", "2026-02-25")).toBe("2026-03-01");
+	});
+
+	it("returns null for unsupported expressions", () => {
+		expect(resolveRelativeDate("tomorrow", "2026-02-25")).toBeNull();
+		expect(resolveRelativeDate("+2w", "2026-02-25")).toBeNull();
+	});
+});
+
 describe("perspective config loader", () => {
 	it("loads perspective config from perspectives.yaml", async () => {
 		const dataDir = await mkdtemp(join(tmpdir(), "tasks-perspectives-"));
@@ -472,14 +489,26 @@ describe("perspective config loader", () => {
 					"    status: active",
 					"    due_before: '+7d'",
 					"  sort: due_asc",
+					"done-today:",
+					"  filters:",
+					"    status: done",
+					"    completed_on: today",
 				].join("\n"),
 			);
 
-			const config = await Effect.runPromise(loadPerspectiveConfig(dataDir));
+			const config = await Effect.runPromise(
+				loadPerspectiveConfig(dataDir, "2026-02-25"),
+			);
 			expect(config).toEqual({
+				"done-today": {
+					filters: {
+						completed_on: "2026-02-25",
+						status: "done",
+					},
+				},
 				"due-this-week": {
 					filters: {
-						due_before: "+7d",
+						due_before: "2026-03-04",
 						status: "active",
 					},
 					sort: "due_asc",
@@ -504,6 +533,38 @@ describe("perspective config loader", () => {
 		try {
 			const config = await Effect.runPromise(loadPerspectiveConfig(dataDir));
 			expect(config).toEqual({});
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("fails when perspective config includes invalid relative dates", async () => {
+		const dataDir = await mkdtemp(
+			join(tmpdir(), "tasks-perspectives-relative-invalid-"),
+		);
+
+		try {
+			await writePerspectiveConfig(
+				dataDir,
+				[
+					"due-this-week:",
+					"  filters:",
+					"    status: active",
+					"    due_before: tomorrow",
+				].join("\n"),
+			);
+
+			const result = await Effect.runPromiseExit(
+				loadPerspectiveConfig(dataDir, "2026-02-25"),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+
+			if (Exit.isFailure(result)) {
+				const failure = Option.getOrNull(Cause.failureOption(result.cause));
+				expect(failure).toBe(
+					`Perspective config loader failed: Invalid perspective config in ${join(dataDir, "perspectives.yaml")}`,
+				);
+			}
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}

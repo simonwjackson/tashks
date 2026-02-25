@@ -42,6 +42,24 @@ const perspectiveConfigFilePath = (dataDir: string): string =>
 const toErrorMessage = (error: unknown): string =>
 	error instanceof Error ? error.message : String(error);
 
+const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+const relativeDaysPattern = /^\+(\d+)d$/;
+
+const currentIsoDate = (): string => new Date().toISOString().slice(0, 10);
+
+const isIsoDate = (value: string): boolean => {
+	if (!isoDatePattern.test(value)) {
+		return false;
+	}
+
+	const parsed = new Date(`${value}T00:00:00.000Z`);
+	if (Number.isNaN(parsed.getTime())) {
+		return false;
+	}
+
+	return parsed.toISOString().slice(0, 10) === value;
+};
+
 export const isBlocked = (task: Task, allTasks: Task[]): boolean => {
 	if (task.blocked_by.length === 0) {
 		return false;
@@ -158,6 +176,33 @@ export const byUpdatedDescThenTitle = (a: Task, b: Task): number => {
 	return a.title.localeCompare(b.title);
 };
 
+export const resolveRelativeDate = (
+	value: string,
+	today: string,
+): string | null => {
+	const normalized = value.trim();
+
+	if (isIsoDate(normalized)) {
+		return normalized;
+	}
+
+	if (!isIsoDate(today)) {
+		return null;
+	}
+
+	if (normalized === "today") {
+		return today;
+	}
+
+	const relativeMatch = relativeDaysPattern.exec(normalized);
+	if (relativeMatch === null) {
+		return null;
+	}
+
+	const days = Number.parseInt(relativeMatch[1], 10);
+	return addDays(today, days);
+};
+
 export const PerspectiveFilters = Schema.Struct({
 	status: Schema.optionalWith(TaskStatusSchema, { exact: true }),
 	area: Schema.optionalWith(TaskAreaSchema, { exact: true }),
@@ -197,8 +242,47 @@ export const parsePerspectiveConfig = (
 	return Either.isRight(result) ? result.right : null;
 };
 
+export const resolvePerspectiveConfigRelativeDates = (
+	config: PerspectiveConfig,
+	today: string,
+): PerspectiveConfig | null => {
+	const resolved: Record<string, Perspective> = {};
+
+	for (const [name, perspective] of Object.entries(config)) {
+		const dueBefore =
+			perspective.filters.due_before === undefined
+				? undefined
+				: resolveRelativeDate(perspective.filters.due_before, today);
+		const dueAfter =
+			perspective.filters.due_after === undefined
+				? undefined
+				: resolveRelativeDate(perspective.filters.due_after, today);
+		const completedOn =
+			perspective.filters.completed_on === undefined
+				? undefined
+				: resolveRelativeDate(perspective.filters.completed_on, today);
+
+		if (dueBefore === null || dueAfter === null || completedOn === null) {
+			return null;
+		}
+
+		resolved[name] = {
+			...perspective,
+			filters: {
+				...perspective.filters,
+				...(dueBefore !== undefined ? { due_before: dueBefore } : {}),
+				...(dueAfter !== undefined ? { due_after: dueAfter } : {}),
+				...(completedOn !== undefined ? { completed_on: completedOn } : {}),
+			},
+		};
+	}
+
+	return resolved;
+};
+
 export const loadPerspectiveConfig = (
 	dataDir: string,
+	today: string = currentIsoDate(),
 ): Effect.Effect<PerspectiveConfig, string> =>
 	Effect.tryPromise({
 		try: async () => {
@@ -225,7 +309,12 @@ export const loadPerspectiveConfig = (
 				throw new Error(`Invalid perspective config in ${path}`);
 			}
 
-			return config;
+			const resolved = resolvePerspectiveConfigRelativeDates(config, today);
+			if (resolved === null) {
+				throw new Error(`Invalid perspective config in ${path}`);
+			}
+
+			return resolved;
 		},
 		catch: (error) =>
 			`Perspective config loader failed: ${toErrorMessage(error)}`,
