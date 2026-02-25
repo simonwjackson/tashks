@@ -898,6 +898,54 @@ describe("TaskRepository service", () => {
 		}
 	});
 
+	it("completeTask creates completion-driven recurrence when strategy is accumulate", async () => {
+		const dataDir = await mkdtemp(
+			join(tmpdir(), "tasks-complete-recur-accumulate-"),
+		);
+		try {
+			await writeTaskFiles(dataDir, [
+				{
+					...baseTask(),
+					recurrence: "FREQ=WEEKLY;INTERVAL=1",
+					recurrence_trigger: "completion",
+					recurrence_strategy: "accumulate",
+					recurrence_last_generated: null,
+				},
+			]);
+
+			const completed = await runRepository(dataDir, (repository) =>
+				repository.completeTask("revive-unzen"),
+			);
+			expect(completed.status).toBe("done");
+			expect(completed.completed_at).not.toBeNull();
+
+			const original = await runRepository(dataDir, (repository) =>
+				repository.getTask("revive-unzen"),
+			);
+			expect(original.status).toBe("done");
+
+			const listed = await runRepository(dataDir, (repository) =>
+				repository.listTasks(),
+			);
+			expect(listed).toHaveLength(2);
+
+			const next = listed.find((task) => task.id !== "revive-unzen");
+			expect(next).toBeDefined();
+			if (next === undefined || completed.completed_at === null) {
+				throw new Error("Expected completed task and next recurrence task");
+			}
+
+			const completionDate = completed.completed_at.slice(0, 10);
+			expect(next.status).toBe("active");
+			expect(next.recurrence_trigger).toBe("completion");
+			expect(next.recurrence_strategy).toBe("accumulate");
+			expect(next.due).toBe(addDaysToIsoDate("2026-03-01", 7));
+			expect(next.defer_until).toBe(addDaysToIsoDate(completionDate, 7));
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
 	it("generateNextRecurrence with replace drops the current instance and creates a new task", async () => {
 		const dataDir = await mkdtemp(join(tmpdir(), "tasks-next-recur-replace-"));
 		try {
