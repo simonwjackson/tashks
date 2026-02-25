@@ -6,10 +6,12 @@ import {
 	TaskCreateInput as TaskCreateInputSchema,
 	TaskPatch as TaskPatchSchema,
 	WorkLogEntry as WorkLogEntrySchema,
+	WorkLogPatch as WorkLogPatchSchema,
 	type Task,
 	type TaskCreateInput,
 	type TaskPatch,
 	type WorkLogEntry,
+	type WorkLogPatch,
 } from "./schema.js";
 
 const idSuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -38,7 +40,9 @@ const decodeTask = Schema.decodeUnknownSync(TaskSchema);
 const decodeTaskEither = Schema.decodeUnknownEither(TaskSchema);
 const decodeTaskCreateInput = Schema.decodeUnknownSync(TaskCreateInputSchema);
 const decodeTaskPatch = Schema.decodeUnknownSync(TaskPatchSchema);
+const decodeWorkLogEntry = Schema.decodeUnknownSync(WorkLogEntrySchema);
 const decodeWorkLogEntryEither = Schema.decodeUnknownEither(WorkLogEntrySchema);
+const decodeWorkLogPatch = Schema.decodeUnknownSync(WorkLogPatchSchema);
 
 export const generateTaskId = (title: string): string =>
 	`${slugifyTitle(title)}-${randomIdSuffix()}`;
@@ -72,6 +76,19 @@ export const applyTaskPatch = (task: Task, patch: TaskPatch): Task => {
 		...normalizedTask,
 		...normalizedPatch,
 		updated: todayIso(),
+	});
+};
+
+export const applyWorkLogPatch = (
+	entry: WorkLogEntry,
+	patch: WorkLogPatch,
+): WorkLogEntry => {
+	const normalizedEntry = decodeWorkLogEntry(entry);
+	const normalizedPatch = decodeWorkLogPatch(patch);
+
+	return decodeWorkLogEntry({
+		...normalizedEntry,
+		...normalizedPatch,
 	});
 };
 
