@@ -1,19 +1,10 @@
 {
-  "name": "tasks",
-  "version": "0.1.0",
-  "type": "module",
+  "name": "tasks-monorepo",
+  "private": true,
+  "workspaces": ["packages/*"],
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "bun test",
-    "cli": "bun run src/tasks/cli.ts"
-  },
-  "dependencies": {
-    "effect": "^3",
-    "@effect/platform": "^0.77",
-    "@effect/platform-node": "^0.72",
-    "@effect/cli": "^0.54",
-    "yaml": "^2",
-    "rrule": "^2"
+    "typecheck": "tsc --build",
+    "test": "bun test packages/"
   },
   "devDependencies": {
     "@types/bun": "^1",

@@ -1,0 +1,17 @@
+{
+	"name": "@tasks/cli",
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test",
+		"cli": "bun run src/cli.ts"
+	},
+	"dependencies": {
+		"@tasks/core": "workspace:*",
+		"effect": "^3",
+		"@effect/cli": "^0.54",
+		"@effect/platform": "^0.77",
+		"@effect/platform-node": "^0.72"
+	}
+}

@@ -22,7 +22,7 @@ All commands go through `just`:
 
 ```
 just install       # bun install
-just typecheck     # tsc --noEmit
+just typecheck     # tsc --build
 just test          # bun test
 just test-watch    # bun test --watch
 just fmt           # biome format --write
@@ -35,12 +35,18 @@ just clean         # remove build artifacts
 
 ## Architecture
 
+Bun workspaces monorepo with two packages:
+
 ```
-src/tasks/
-  schema.ts          # Effect Schema definitions — the canonical types
-  repository.ts      # YAML-backed CRUD (read/write/delete/list)
-  query.ts           # Filtering, sorting, helper functions
-  cli.ts             # @effect/cli entry point
+packages/
+  core/              # @tasks/core — the library
+    src/
+      schema.ts      # Effect Schema definitions — the canonical types
+      repository.ts  # YAML-backed CRUD (read/write/delete/list)
+      query.ts       # Filtering, sorting, helper functions
+  cli/               # @tasks/cli — CLI entry point (depends on @tasks/core)
+    src/
+      cli.ts         # @effect/cli entry point
 ```
 
 ## Code style

@@ -7,7 +7,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 ## Phase 0: Project Setup
 
 - [x] Initialize project tooling (flake.nix, package.json, tsconfig, justfile, biome)
-- [x] Scaffold source files (schema.ts, repository.ts, query.ts, cli.ts)
+- [x] Scaffold source files (packages/core/src/{schema,repository,query}.ts, packages/cli/src/cli.ts)
 - [x] Create CLAUDE.md, PLAN.md, update LOOP_PROMPT.md
 
 ## Phase 1: Schema

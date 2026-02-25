@@ -6,31 +6,31 @@ install:
 
 # Type-check (no emit)
 typecheck:
-    bun run typecheck
+    tsc --build
 
 # Run tests (exits 0 if no test files exist yet)
 test:
-    bun test || test $? -eq 1 && echo "No test files found, skipping."
+    bun test packages/ || test $? -eq 1 && echo "No test files found, skipping."
 
 # Run tests in watch mode
 test-watch:
-    bun test --watch
+    bun test --watch packages/
 
 # Format with Biome
 fmt:
-    biome format --write src/
+    biome format --write packages/
 
 # Lint with Biome
 lint:
-    biome lint src/
+    biome lint packages/
 
 # Check (format + lint, no writes)
 check:
-    biome check src/
+    biome check packages/
 
 # Run the CLI
 cli *ARGS:
-    bun run src/tasks/cli.ts {{ARGS}}
+    bun run packages/cli/src/cli.ts {{ARGS}}
 
 # Pre-commit gate: fmt + typecheck + test
 gate:
@@ -40,4 +40,4 @@ gate:
 
 # Remove build artifacts
 clean:
-    rm -rf node_modules dist .direnv
+    rm -rf node_modules packages/*/node_modules packages/*/dist .direnv
