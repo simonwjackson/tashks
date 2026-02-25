@@ -55,7 +55,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 
 - [x] `completeTask` — set done + completed_at, trigger completion-driven recurrence — *needs:* Phase 4
 - [x] `generateNextRecurrence` — create new instance, handle replace vs accumulate — *needs:* Phase 4
-- [ ] `processDueRecurrences(now)` — scan clock-driven tasks, generate due instances — *needs:* Phase 4
+- [x] `processDueRecurrences(now)` — scan clock-driven tasks, generate due instances — *needs:* Phase 4
 - [ ] RRULE parsing and interval extraction using `rrule` package — *needs:* Phase 1
 - [ ] Add tests for both trigger modes and both strategies
 
