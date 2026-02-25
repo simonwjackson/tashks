@@ -25,6 +25,8 @@ const randomIdSuffix = (): string => {
 export const generateTaskId = (title: string): string =>
 	`${slugifyTitle(title)}-${randomIdSuffix()}`;
 
+export const todayIso = (): string => new Date().toISOString().slice(0, 10);
+
 // TODO: TaskRepository Effect service (Context.Tag)
 // TODO: YAML-backed CRUD for tasks and work log entries
 // TODO: listTasks, getTask, createTask, updateTask, deleteTask
