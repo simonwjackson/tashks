@@ -7,8 +7,9 @@ import {
 	formatOutput,
 	makeCli,
 	resolveCreateTaskInput,
-	resolveListTaskFilters,
 	resolveGlobalCliOptions,
+	resolveListTaskFilters,
+	resolveUpdateTaskPatch,
 	type GlobalCliOptions,
 } from "./cli.js";
 
@@ -164,6 +165,62 @@ describe("create input resolution", () => {
 		expect(input).toEqual({
 			title: "Capture outage notes",
 		});
+	});
+});
+
+describe("update patch resolution", () => {
+	it("maps all update options to repository patch fields", () => {
+		const patch = resolveUpdateTaskPatch({
+			title: Option.some("Revive unzen server"),
+			status: Option.some("active"),
+			area: Option.some("infrastructure"),
+			project: Option.some("homelab"),
+			tags: Option.some("hardware, weekend, ,ops"),
+			due: Option.some("2026-03-01"),
+			deferUntil: Option.some("2026-02-28"),
+			urgency: Option.some("high"),
+			energy: Option.some("high"),
+			context: Option.some("Mini-ITX build"),
+			recurrence: Option.some("FREQ=WEEKLY;BYDAY=MO"),
+			recurrenceTrigger: Option.some("completion"),
+			recurrenceStrategy: Option.some("accumulate"),
+		});
+
+		expect(patch).toEqual({
+			title: "Revive unzen server",
+			status: "active",
+			area: "infrastructure",
+			project: "homelab",
+			tags: ["hardware", "weekend", "ops"],
+			due: "2026-03-01",
+			defer_until: "2026-02-28",
+			urgency: "high",
+			energy: "high",
+			context: "Mini-ITX build",
+			recurrence: "FREQ=WEEKLY;BYDAY=MO",
+			recurrence_trigger: "completion",
+			recurrence_strategy: "accumulate",
+		});
+	});
+
+	it("omits unset update options and empty tags", () => {
+		const patch = resolveUpdateTaskPatch({
+			title: Option.none(),
+			status: Option.none(),
+			area: Option.none(),
+			project: Option.none(),
+			tags: Option.some(" ,  , "),
+			due: Option.none(),
+			deferUntil: Option.none(),
+			urgency: Option.none(),
+			energy: Option.none(),
+			context: Option.none(),
+			recurrence: Option.none(),
+			recurrenceTrigger: Option.none(),
+			recurrenceStrategy: Option.none(),
+		});
+
+		expect(patch).toEqual({});
 	});
 });
 
@@ -349,6 +406,87 @@ describe("cli parsing", () => {
 					pretty: true,
 				},
 				input: {
+					title: "Revive unzen server",
+					status: "active",
+					area: "infrastructure",
+					project: "homelab",
+					tags: ["hardware", "weekend", "ops"],
+					due: "2026-03-01",
+					defer_until: "2026-02-28",
+					urgency: "high",
+					energy: "high",
+					context: "Mini-ITX build",
+					recurrence: "FREQ=WEEKLY;BYDAY=MO",
+					recurrence_trigger: "completion",
+					recurrence_strategy: "accumulate",
+				},
+			},
+		]);
+	});
+
+	it("parses `tasks update <id>` with all patch flags", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly id: string;
+			readonly patch: ReturnType<typeof resolveUpdateTaskPatch>;
+		}> = [];
+		const program = makeCli(
+			(_options) => Effect.void,
+			(_options, _filters) => Effect.void,
+			(_options, _id) => Effect.void,
+			(_options, _input) => Effect.void,
+			(options, id, patch) =>
+				Effect.sync(() => {
+					captured.push({ options, id, patch });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"update",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"--title",
+				"Revive unzen server",
+				"--status",
+				"active",
+				"--area",
+				"infrastructure",
+				"--project",
+				"homelab",
+				"--tags",
+				"hardware, weekend,ops",
+				"--due",
+				"2026-03-01",
+				"--defer-until",
+				"2026-02-28",
+				"--urgency",
+				"high",
+				"--energy",
+				"high",
+				"--context",
+				"Mini-ITX build",
+				"--recurrence",
+				"FREQ=WEEKLY;BYDAY=MO",
+				"--recurrence-trigger",
+				"completion",
+				"--recurrence-strategy",
+				"accumulate",
+				"revive-unzen",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toEqual([
+			{
+				options: {
+					dataDir: "/tmp/tasks-data",
+					pretty: true,
+				},
+				id: "revive-unzen",
+				patch: {
 					title: "Revive unzen server",
 					status: "active",
 					area: "infrastructure",

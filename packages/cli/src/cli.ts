@@ -33,6 +33,7 @@ export interface ListTasksCliOptionsInput {
 }
 
 type TaskCreateInput = Parameters<TaskRepositoryService["createTask"]>[0];
+type TaskPatchInput = Parameters<TaskRepositoryService["updateTask"]>[1];
 
 export interface CreateTaskCliOptionsInput {
 	readonly title: string;
@@ -54,6 +55,26 @@ export interface CreateTaskCliOptionsInput {
 	>;
 }
 
+export interface UpdateTaskCliOptionsInput {
+	readonly title: Option.Option<string>;
+	readonly status: Option.Option<NonNullable<TaskPatchInput["status"]>>;
+	readonly area: Option.Option<NonNullable<TaskPatchInput["area"]>>;
+	readonly project: Option.Option<string>;
+	readonly tags: Option.Option<string>;
+	readonly due: Option.Option<string>;
+	readonly deferUntil: Option.Option<string>;
+	readonly urgency: Option.Option<NonNullable<TaskPatchInput["urgency"]>>;
+	readonly energy: Option.Option<NonNullable<TaskPatchInput["energy"]>>;
+	readonly context: Option.Option<string>;
+	readonly recurrence: Option.Option<string>;
+	readonly recurrenceTrigger: Option.Option<
+		NonNullable<TaskPatchInput["recurrence_trigger"]>
+	>;
+	readonly recurrenceStrategy: Option.Option<
+		NonNullable<TaskPatchInput["recurrence_strategy"]>
+	>;
+}
+
 export type ListTasksExecute<R, E> = (
 	options: GlobalCliOptions,
 	filters: ListTasksFilters,
@@ -67,6 +88,12 @@ export type GetTaskExecute<R, E> = (
 export type CreateTaskExecute<R, E> = (
 	options: GlobalCliOptions,
 	input: TaskCreateInput,
+) => Effect.Effect<void, E, R>;
+
+export type UpdateTaskExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+	patch: TaskPatchInput,
 ) => Effect.Effect<void, E, R>;
 
 export const defaultDataDir = (
@@ -154,6 +181,44 @@ export const resolveCreateTaskInput = (
 
 	return {
 		title: options.title,
+		...(status !== undefined ? { status } : {}),
+		...(area !== undefined ? { area } : {}),
+		...(project !== undefined ? { project } : {}),
+		...(tags !== undefined ? { tags } : {}),
+		...(due !== undefined ? { due } : {}),
+		...(deferUntil !== undefined ? { defer_until: deferUntil } : {}),
+		...(urgency !== undefined ? { urgency } : {}),
+		...(energy !== undefined ? { energy } : {}),
+		...(context !== undefined ? { context } : {}),
+		...(recurrence !== undefined ? { recurrence } : {}),
+		...(recurrenceTrigger !== undefined
+			? { recurrence_trigger: recurrenceTrigger }
+			: {}),
+		...(recurrenceStrategy !== undefined
+			? { recurrence_strategy: recurrenceStrategy }
+			: {}),
+	};
+};
+
+export const resolveUpdateTaskPatch = (
+	options: UpdateTaskCliOptionsInput,
+): TaskPatchInput => {
+	const title = toUndefined(options.title);
+	const status = toUndefined(options.status);
+	const area = toUndefined(options.area);
+	const project = toUndefined(options.project);
+	const tags = parseTagFilter(options.tags);
+	const due = toUndefined(options.due);
+	const deferUntil = toUndefined(options.deferUntil);
+	const urgency = toUndefined(options.urgency);
+	const energy = toUndefined(options.energy);
+	const context = toUndefined(options.context);
+	const recurrence = toUndefined(options.recurrence);
+	const recurrenceTrigger = toUndefined(options.recurrenceTrigger);
+	const recurrenceStrategy = toUndefined(options.recurrenceStrategy);
+
+	return {
+		...(title !== undefined ? { title } : {}),
 		...(status !== undefined ? { status } : {}),
 		...(area !== undefined ? { area } : {}),
 		...(project !== undefined ? { project } : {}),
@@ -382,11 +447,89 @@ export const makeCreateCommand = <R, E>(execute: CreateTaskExecute<R, E>) =>
 			}),
 	).pipe(Command.withDescription("Create a task"));
 
+export const makeUpdateCommand = <R, E>(execute: UpdateTaskExecute<R, E>) =>
+	Command.make(
+		"update",
+		{
+			dataDir: dataDirOption,
+			pretty: prettyOption,
+			id: Args.text({ name: "id" }),
+			title: Options.text("title").pipe(
+				Options.withDescription("Updated task title"),
+				Options.optional,
+			),
+			status: Options.choice("status", taskStatusChoices).pipe(
+				Options.withDescription("Updated task status"),
+				Options.optional,
+			),
+			area: Options.choice("area", taskAreaChoices).pipe(
+				Options.withDescription("Updated task area"),
+				Options.optional,
+			),
+			project: Options.text("project").pipe(
+				Options.withDescription("Updated project label"),
+				Options.optional,
+			),
+			tags: Options.text("tags").pipe(
+				Options.withDescription("Updated comma-separated tags"),
+				Options.optional,
+			),
+			due: Options.text("due").pipe(
+				Options.withDescription("Updated due date (YYYY-MM-DD)"),
+				Options.optional,
+			),
+			deferUntil: Options.text("defer-until").pipe(
+				Options.withDescription("Updated hidden-until date (YYYY-MM-DD)"),
+				Options.optional,
+			),
+			urgency: Options.choice("urgency", taskUrgencyChoices).pipe(
+				Options.withDescription("Updated urgency level"),
+				Options.optional,
+			),
+			energy: Options.choice("energy", taskEnergyChoices).pipe(
+				Options.withDescription("Updated energy requirement"),
+				Options.optional,
+			),
+			context: Options.text("context").pipe(
+				Options.withDescription("Updated context notes"),
+				Options.optional,
+			),
+			recurrence: Options.text("recurrence").pipe(
+				Options.withDescription("Updated iCal RRULE string"),
+				Options.optional,
+			),
+			recurrenceTrigger: Options.choice(
+				"recurrence-trigger",
+				recurrenceTriggerChoices,
+			).pipe(
+				Options.withDescription("Updated recurrence trigger mode"),
+				Options.optional,
+			),
+			recurrenceStrategy: Options.choice(
+				"recurrence-strategy",
+				recurrenceStrategyChoices,
+			).pipe(
+				Options.withDescription("Updated clock recurrence strategy"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					pretty: options.pretty,
+				});
+				const patch = resolveUpdateTaskPatch(options);
+				yield* execute(globalOptions, options.id, patch);
+			}),
+	).pipe(Command.withDescription("Update a task by id"));
+
 export const makeTasksCommand = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E>,
 	executeGet: GetTaskExecute<R, E>,
 	executeCreate: CreateTaskExecute<R, E>,
+	executeUpdate: UpdateTaskExecute<R, E>,
 ) =>
 	Command.make(
 		"tasks",
@@ -401,6 +544,7 @@ export const makeTasksCommand = <R, E>(
 			makeListCommand(executeList),
 			makeGetCommand(executeGet),
 			makeCreateCommand(executeCreate),
+			makeUpdateCommand(executeUpdate),
 		]),
 	);
 
@@ -420,6 +564,12 @@ const noopGetExecute = (
 const noopCreateExecute = (
 	_options: GlobalCliOptions,
 	_input: TaskCreateInput,
+): Effect.Effect<void> => Effect.void;
+
+const noopUpdateExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+	_patch: TaskPatchInput,
 ): Effect.Effect<void> => Effect.void;
 
 const defaultListExecute: ListTasksExecute<never, string> = (
@@ -458,6 +608,20 @@ const defaultCreateExecute: CreateTaskExecute<never, string> = (
 		});
 	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
 
+const defaultUpdateExecute: UpdateTaskExecute<never, string> = (
+	options,
+	id,
+	patch,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const task = yield* repository.updateTask(id, patch);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(TaskRepositoryLive({ dataDir: options.dataDir })));
+
 export const makeCli = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E> = noopListExecute as ListTasksExecute<
@@ -469,9 +633,19 @@ export const makeCli = <R, E>(
 		R,
 		E
 	> = noopCreateExecute as CreateTaskExecute<R, E>,
+	executeUpdate: UpdateTaskExecute<
+		R,
+		E
+	> = noopUpdateExecute as UpdateTaskExecute<R, E>,
 ) =>
 	Command.run(
-		makeTasksCommand(execute, executeList, executeGet, executeCreate),
+		makeTasksCommand(
+			execute,
+			executeList,
+			executeGet,
+			executeCreate,
+			executeUpdate,
+		),
 		{
 			name: "Tasks CLI",
 			version: "v0.1.0",
@@ -483,6 +657,7 @@ export const cli = makeCli(
 	defaultListExecute,
 	defaultGetExecute,
 	defaultCreateExecute,
+	defaultUpdateExecute,
 );
 
 export const runCli = (argv: ReadonlyArray<string> = process.argv) => cli(argv);
