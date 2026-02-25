@@ -1127,6 +1127,46 @@ exit 19
 		}
 	});
 
+	it("updateTask aborts when an on-modify hook changes task id", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-update-hook-id-"));
+		const hooksDir = join(dataDir, "hooks");
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+			await writeExecutableHook(
+				hooksDir,
+				"on-modify",
+				`#!/usr/bin/env node
+const fs = require("node:fs");
+const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+payload.new.id = "mutated-id";
+process.stdout.write(JSON.stringify(payload.new));
+`,
+			);
+
+			const result = await runRepositoryWithOptionsExit(
+				{ dataDir, hooksDir },
+				(repository) =>
+					repository.updateTask("revive-unzen", {
+						title: "Repair array",
+					}),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+
+			if (Exit.isFailure(result)) {
+				const failure = Option.getOrNull(Cause.failureOption(result.cause));
+				expect(failure).toContain("on-modify hooks cannot change task id");
+			}
+
+			const fetched = await runRepository(dataDir, (repository) =>
+				repository.getTask("revive-unzen"),
+			);
+			expect(fetched.id).toBe("revive-unzen");
+			expect(fetched.title).toBe("Revive unzen server");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
 	it("completeTask runs on-complete hooks with the completed task payload", async () => {
 		const dataDir = await mkdtemp(join(tmpdir(), "tasks-complete-hook-"));
 		const hooksDir = join(dataDir, "hooks");
