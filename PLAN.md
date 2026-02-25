@@ -45,7 +45,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 
 - [x] Implement `TaskRepository` service tag and live implementation — *needs:* Phase 2
 - [x] `listTasks` with filters (status, area, project, tags, due_before, due_after, unblocked_only, date/defer_until) — *needs:* Phase 3
-- [ ] `getTask`, `createTask`, `updateTask`, `deleteTask` — *needs:* Phase 2
+- [x] `getTask`, `createTask`, `updateTask`, `deleteTask` — *needs:* Phase 2
 - [ ] `setDailyHighlight` (clears others first) — *needs:* Phase 2
 - [ ] `listStale(days)` — *needs:* Phase 3
 - [ ] Work log CRUD: `listWorkLog`, `createWorkLogEntry`, `updateWorkLogEntry`, `deleteWorkLogEntry` — *needs:* Phase 2
