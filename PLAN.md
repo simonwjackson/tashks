@@ -16,7 +16,7 @@ Derived from [DESIGN.md](DESIGN.md) and [PROMPT.md](PROMPT.md).
 - [x] Define Subtask schema
 - [x] Define Task schema with all fields from DESIGN.md §2.1 + §2.5 (including project, tags, due, recurrence fields)
 - [x] Define TaskCreateInput (title required, defaults for everything else)
-- [ ] Define TaskPatch (all fields optional)
+- [x] Define TaskPatch (all fields optional)
 - [ ] Define WorkLogEntry schema (revised per DESIGN.md §2.4: per-task entries)
 - [ ] Define WorkLogCreateInput and WorkLogPatch
 - [ ] Add tests for schema encode/decode round-trips
