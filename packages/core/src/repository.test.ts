@@ -1048,6 +1048,66 @@ exit 19
 		}
 	});
 
+	it("completeTask runs on-complete hooks with the completed task payload", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-complete-hook-"));
+		const hooksDir = join(dataDir, "hooks");
+		const markerPath = join(dataDir, "on-complete.json");
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+			await writeExecutableHook(
+				hooksDir,
+				"on-complete",
+				`#!/usr/bin/env node
+const fs = require("node:fs");
+const task = JSON.parse(fs.readFileSync(0, "utf8"));
+fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(task), "utf8");
+`,
+			);
+
+			const completed = await runRepositoryWithOptions(
+				{ dataDir, hooksDir },
+				(repository) => repository.completeTask("revive-unzen"),
+			);
+			expect(completed.status).toBe("done");
+
+			const payload = JSON.parse(await readFile(markerPath, "utf8"));
+			expect(payload.id).toBe("revive-unzen");
+			expect(payload.status).toBe("done");
+			expect(payload.completed_at).toBe(completed.completed_at);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("completeTask does not fail when an on-complete hook exits non-zero", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-complete-hook-fail-"));
+		const hooksDir = join(dataDir, "hooks");
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+			await writeExecutableHook(
+				hooksDir,
+				"on-complete",
+				`#!/usr/bin/env bash
+echo "complete hook failed" >&2
+exit 7
+`,
+			);
+
+			const completed = await runRepositoryWithOptions(
+				{ dataDir, hooksDir },
+				(repository) => repository.completeTask("revive-unzen"),
+			);
+			expect(completed.status).toBe("done");
+
+			const fetched = await runRepository(dataDir, (repository) =>
+				repository.getTask("revive-unzen"),
+			);
+			expect(fetched.status).toBe("done");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
 	it("completeTask marks the task done and does not create recurrence for clock-driven tasks", async () => {
 		const dataDir = await mkdtemp(join(tmpdir(), "tasks-complete-clock-"));
 		try {
@@ -1490,6 +1550,65 @@ exit 19
 					"TaskRepository failed to read task revive-unzen: Task not found: revive-unzen",
 				);
 			}
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("deleteTask runs on-delete hooks with the deleted task payload", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-delete-hook-"));
+		const hooksDir = join(dataDir, "hooks");
+		const markerPath = join(dataDir, "on-delete.json");
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+			await writeExecutableHook(
+				hooksDir,
+				"on-delete",
+				`#!/usr/bin/env node
+const fs = require("node:fs");
+const task = JSON.parse(fs.readFileSync(0, "utf8"));
+fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify(task), "utf8");
+`,
+			);
+
+			const deleted = await runRepositoryWithOptions(
+				{ dataDir, hooksDir },
+				(repository) => repository.deleteTask("revive-unzen"),
+			);
+			expect(deleted).toEqual({ deleted: true });
+
+			const payload = JSON.parse(await readFile(markerPath, "utf8"));
+			expect(payload.id).toBe("revive-unzen");
+			expect(payload.title).toBe("Revive unzen server");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("deleteTask does not fail when an on-delete hook exits non-zero", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-delete-hook-fail-"));
+		const hooksDir = join(dataDir, "hooks");
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+			await writeExecutableHook(
+				hooksDir,
+				"on-delete",
+				`#!/usr/bin/env bash
+echo "delete hook failed" >&2
+exit 5
+`,
+			);
+
+			const deleted = await runRepositoryWithOptions(
+				{ dataDir, hooksDir },
+				(repository) => repository.deleteTask("revive-unzen"),
+			);
+			expect(deleted).toEqual({ deleted: true });
+
+			const result = await runRepositoryExit(dataDir, (repository) =>
+				repository.getTask("revive-unzen"),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}

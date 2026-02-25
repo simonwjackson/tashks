@@ -974,6 +974,23 @@ const runModifyHooks = (
 		return currentTask;
 	});
 
+const runNonMutatingHooks = (
+	event: "complete" | "delete",
+	task: Task,
+	options: HookDiscoveryOptions,
+): Effect.Effect<void, never> =>
+	Effect.gen(function* () {
+		const hooks = yield* discoverHooksForEvent(event, options).pipe(
+			Effect.catchAll(() => Effect.succeed([])),
+		);
+
+		for (const hookPath of hooks) {
+			yield* runHookExecutable(hookPath, JSON.stringify(task)).pipe(
+				Effect.ignore,
+			);
+		}
+	});
+
 export interface TaskRepositoryService {
 	readonly listTasks: (
 		filters?: ListTasksFilters,
@@ -1089,6 +1106,11 @@ const makeTaskRepositoryLive = (
 				);
 
 				yield* writeTaskToDisk(existing.path, completedTask);
+				yield* runNonMutatingHooks(
+					"complete",
+					completedTask,
+					hookDiscoveryOptions,
+				);
 
 				if (nextRecurringTask !== null) {
 					yield* ensureTasksDir(dataDir);
@@ -1148,6 +1170,11 @@ const makeTaskRepositoryLive = (
 			Effect.gen(function* () {
 				const existing = yield* readTaskByIdFromDisk(dataDir, id);
 				yield* deleteTaskFromDisk(existing.path, id);
+				yield* runNonMutatingHooks(
+					"delete",
+					existing.task,
+					hookDiscoveryOptions,
+				);
 				return { deleted: true } as const;
 			}),
 		setDailyHighlight: (id) =>
