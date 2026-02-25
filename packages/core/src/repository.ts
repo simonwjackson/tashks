@@ -619,6 +619,7 @@ export interface TaskRepositoryService {
 		patch: TaskPatch,
 	) => Effect.Effect<Task, string>;
 	readonly completeTask: (id: string) => Effect.Effect<Task, string>;
+	readonly generateNextRecurrence: (id: string) => Effect.Effect<Task, string>;
 	readonly deleteTask: (id: string) => Effect.Effect<DeleteResult, string>;
 	readonly setDailyHighlight: (id: string) => Effect.Effect<Task, string>;
 	readonly listStale: (days: number) => Effect.Effect<Array<Task>, string>;
@@ -709,6 +710,50 @@ const makeTaskRepositoryLive = (
 				}
 
 				return completedTask;
+			}),
+		generateNextRecurrence: (id) =>
+			Effect.gen(function* () {
+				const existing = yield* readTaskByIdFromDisk(dataDir, id);
+				const recurrence = existing.task.recurrence;
+				if (recurrence === null) {
+					return yield* Effect.fail(
+						`TaskRepository failed to generate next recurrence for ${id}: task is not recurring`,
+					);
+				}
+
+				const generatedAt = new Date().toISOString();
+				const generatedDate = generatedAt.slice(0, 10);
+				const nextTask = decodeTask({
+					...existing.task,
+					id: generateTaskId(existing.task.title),
+					status: "active",
+					created: generatedDate,
+					updated: generatedDate,
+					actual_minutes: null,
+					completed_at: null,
+					last_surfaced: null,
+					defer_until: null,
+					nudge_count: 0,
+					recurrence_last_generated: generatedAt,
+				});
+
+				if (
+					existing.task.recurrence_strategy === "replace" &&
+					existing.task.status !== "done" &&
+					existing.task.status !== "dropped"
+				) {
+					const droppedTask = decodeTask({
+						...existing.task,
+						status: "dropped",
+						updated: generatedDate,
+					});
+					yield* writeTaskToDisk(existing.path, droppedTask);
+				}
+
+				yield* ensureTasksDir(dataDir);
+				yield* writeTaskToDisk(taskFilePath(dataDir, nextTask.id), nextTask);
+
+				return nextTask;
 			}),
 		deleteTask: (id) =>
 			Effect.gen(function* () {

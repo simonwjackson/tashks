@@ -73,6 +73,7 @@ const makeRepositoryService = (
 	createTask: () => unexpectedCall(),
 	updateTask: () => unexpectedCall(),
 	completeTask: () => unexpectedCall(),
+	generateNextRecurrence: () => unexpectedCall(),
 	deleteTask: () => unexpectedCall(),
 	setDailyHighlight: () => unexpectedCall(),
 	listStale: () => unexpectedCall(),
@@ -708,6 +709,7 @@ describe("TaskRepository service", () => {
 			"createWorkLogEntry",
 			"deleteTask",
 			"deleteWorkLogEntry",
+			"generateNextRecurrence",
 			"getTask",
 			"listStale",
 			"listTasks",
@@ -849,6 +851,84 @@ describe("TaskRepository service", () => {
 			expect(next.recurrence).toBe("FREQ=WEEKLY;INTERVAL=2");
 			expect(next.recurrence_trigger).toBe("completion");
 			expect(next.recurrence_last_generated).toBe(completed.completed_at);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("generateNextRecurrence with replace drops the current instance and creates a new task", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-next-recur-replace-"));
+		try {
+			await writeTaskFiles(dataDir, [
+				{
+					...baseTask(),
+					recurrence: "FREQ=WEEKLY;BYDAY=MO",
+					recurrence_trigger: "clock",
+					recurrence_strategy: "replace",
+					recurrence_last_generated: null,
+				},
+			]);
+
+			const next = await runRepository(dataDir, (repository) =>
+				repository.generateNextRecurrence("revive-unzen"),
+			);
+
+			expect(next.id).toMatch(/^revive-unzen-server-[a-z0-9]{6}$/);
+			expect(next.status).toBe("active");
+			expect(next.created).toBe(todayIso());
+			expect(next.updated).toBe(todayIso());
+			expect(next.actual_minutes).toBeNull();
+			expect(next.completed_at).toBeNull();
+			expect(next.last_surfaced).toBeNull();
+			expect(next.defer_until).toBeNull();
+			expect(next.nudge_count).toBe(0);
+			expect(next.recurrence).toBe("FREQ=WEEKLY;BYDAY=MO");
+			expect(next.recurrence_last_generated).not.toBeNull();
+
+			const replaced = await runRepository(dataDir, (repository) =>
+				repository.getTask("revive-unzen"),
+			);
+			expect(replaced.status).toBe("dropped");
+			expect(replaced.updated).toBe(todayIso());
+
+			const listed = await runRepository(dataDir, (repository) =>
+				repository.listTasks(),
+			);
+			expect(listed).toHaveLength(2);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("generateNextRecurrence with accumulate keeps the current instance active", async () => {
+		const dataDir = await mkdtemp(
+			join(tmpdir(), "tasks-next-recur-accumulate-"),
+		);
+		try {
+			await writeTaskFiles(dataDir, [
+				{
+					...baseTask(),
+					recurrence: "FREQ=DAILY",
+					recurrence_trigger: "clock",
+					recurrence_strategy: "accumulate",
+					recurrence_last_generated: null,
+				},
+			]);
+
+			const next = await runRepository(dataDir, (repository) =>
+				repository.generateNextRecurrence("revive-unzen"),
+			);
+			expect(next.status).toBe("active");
+
+			const original = await runRepository(dataDir, (repository) =>
+				repository.getTask("revive-unzen"),
+			);
+			expect(original.status).toBe("active");
+
+			const listed = await runRepository(dataDir, (repository) =>
+				repository.listTasks(),
+			);
+			expect(listed).toHaveLength(2);
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}
