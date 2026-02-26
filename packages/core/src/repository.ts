@@ -37,6 +37,7 @@ import {
 	isDueBefore,
 	isStalerThan,
 	isUnblocked,
+	listContexts as listContextsFromTasks,
 } from "./query.js";
 import { generateTaskId } from "./id.js";
 import {
@@ -558,7 +559,7 @@ export const applyListTaskFilters = (
 				return false;
 			}
 
-			if (filters.project !== undefined && task.project !== filters.project) {
+			if (filters.project !== undefined && !task.projects.includes(filters.project)) {
 				return false;
 			}
 
@@ -593,6 +594,34 @@ export const applyListTaskFilters = (
 				return false;
 			}
 
+			if (
+				filters.duration_min !== undefined &&
+				(task.estimated_minutes === null || task.estimated_minutes < filters.duration_min)
+			) {
+				return false;
+			}
+
+			if (
+				filters.duration_max !== undefined &&
+				(task.estimated_minutes === null || task.estimated_minutes > filters.duration_max)
+			) {
+				return false;
+			}
+
+			if (
+				filters.context !== undefined &&
+				task.context !== filters.context
+			) {
+				return false;
+			}
+
+			if (
+				filters.include_templates !== true &&
+				task.is_template === true
+			) {
+				return false;
+			}
+
 			return true;
 		})
 		.sort(byUpdatedDescThenTitle);
@@ -607,6 +636,10 @@ export interface ListTasksFilters {
 	readonly due_after?: string;
 	readonly unblocked_only?: boolean;
 	readonly date?: string;
+	readonly duration_min?: number;
+	readonly duration_max?: number;
+	readonly context?: string;
+	readonly include_templates?: boolean;
 }
 
 export interface ListProjectsFilters {
@@ -696,6 +729,18 @@ export interface TaskRepositoryService {
 	) => Effect.Effect<Project, string>;
 	readonly deleteProject: (id: string) => Effect.Effect<DeleteResult, string>;
 	readonly importProject: (project: Project) => Effect.Effect<Project, string>;
+	readonly listContexts: () => Effect.Effect<Array<string>, string>;
+	readonly getRelated: (id: string) => Effect.Effect<Array<Task>, string>;
+	readonly instantiateTemplate: (
+		templateId: string,
+		overrides?: {
+			readonly title?: string;
+			readonly due?: string;
+			readonly defer_until?: string;
+			readonly status?: string;
+			readonly projects?: ReadonlyArray<string>;
+		},
+	) => Effect.Effect<Task, string>;
 }
 
 export class TaskRepository extends Context.Tag("TaskRepository")<
@@ -714,6 +759,66 @@ const defaultDataDir = (): string => {
 	return home !== undefined && home.length > 0
 		? `${home}/.local/share/tashks`
 		: ".local/share/tashks";
+};
+
+export const buildInstanceFromTemplate = (
+	template: Task,
+	overrides?: {
+		readonly title?: string;
+		readonly due?: string;
+		readonly defer_until?: string;
+		readonly status?: string;
+		readonly projects?: ReadonlyArray<string>;
+	},
+): Task => {
+	const now = new Date().toISOString().slice(0, 10);
+	return decodeTask({
+		id: generateTaskId(overrides?.title ?? template.title),
+		title: overrides?.title ?? template.title,
+		status: overrides?.status ?? "backlog",
+		area: template.area,
+		projects: overrides?.projects
+			? [...overrides.projects]
+			: [...template.projects],
+		tags: [...template.tags],
+		created: now,
+		updated: now,
+		urgency: template.urgency,
+		energy: template.energy,
+		due: overrides?.due ?? null,
+		context: template.context,
+		subtasks: template.subtasks.map((s) => ({ text: s.text, done: false })),
+		blocked_by: [],
+		estimated_minutes: template.estimated_minutes,
+		actual_minutes: null,
+		completed_at: null,
+		last_surfaced: null,
+		defer_until: overrides?.defer_until ?? null,
+		nudge_count: 0,
+		recurrence: null,
+		recurrence_trigger: "clock",
+		recurrence_strategy: "replace",
+		recurrence_last_generated: null,
+		related: [...template.related],
+		is_template: false,
+		from_template: template.id,
+	});
+};
+
+const validateNoTemplateRefs = (
+	relatedIds: ReadonlyArray<string>,
+	allTasks: Array<Task>,
+): Effect.Effect<void, string> => {
+	const templateIds = allTasks
+		.filter((t) => t.is_template)
+		.map((t) => t.id);
+	const badRefs = relatedIds.filter((id) => templateIds.includes(id));
+	if (badRefs.length > 0) {
+		return Effect.fail(
+			`Cannot reference template(s) in related: ${badRefs.join(", ")}`,
+		);
+	}
+	return Effect.void;
 };
 
 const makeTaskRepositoryLive = (
@@ -737,6 +842,10 @@ const makeTaskRepositoryLive = (
 			Effect.gen(function* () {
 				yield* ensureTasksDir(dataDir);
 				const created = createTaskFromInput(input);
+				if (created.related.length > 0) {
+					const allTasks = yield* readTasksFromDisk(dataDir);
+					yield* validateNoTemplateRefs(created.related, allTasks);
+				}
 				const taskFromHooks = yield* runCreateHooks(
 					created,
 					hookRuntimeOptions,
@@ -751,6 +860,13 @@ const makeTaskRepositoryLive = (
 			Effect.gen(function* () {
 				const existing = yield* readTaskByIdFromDisk(dataDir, id);
 				const updated = applyTaskPatch(existing.task, patch);
+				if (
+					patch.related !== undefined &&
+					updated.related.length > 0
+				) {
+					const allTasks = yield* readTasksFromDisk(dataDir);
+					yield* validateNoTemplateRefs(updated.related, allTasks);
+				}
 				const taskFromHooks = yield* runModifyHooks(
 					existing.task,
 					updated,
@@ -812,7 +928,8 @@ const makeTaskRepositoryLive = (
 						task.recurrence !== null &&
 						task.recurrence_trigger === "clock" &&
 						task.status !== "done" &&
-						task.status !== "dropped",
+						task.status !== "dropped" &&
+						!task.is_template,
 				);
 
 				const created: Array<Task> = [];
@@ -950,6 +1067,45 @@ const makeTaskRepositoryLive = (
 				yield* writeProjectToDisk(projectFilePath(dataDir, project.id), project);
 				return project;
 			}),
+		listContexts: () =>
+			Effect.map(readTasksFromDisk(dataDir), (tasks) =>
+				listContextsFromTasks(tasks),
+			),
+		getRelated: (id) =>
+			Effect.gen(function* () {
+				const existing = yield* readTaskByIdFromDisk(dataDir, id);
+				const allTasks = yield* readTasksFromDisk(dataDir);
+				const targetRelated = new Set(existing.task.related);
+				return allTasks.filter(
+					(t) =>
+						t.id !== id &&
+						(targetRelated.has(t.id) || t.related.includes(id)),
+				);
+			}),
+		instantiateTemplate: (templateId, overrides) =>
+			Effect.gen(function* () {
+				const existing = yield* readTaskByIdFromDisk(dataDir, templateId);
+				const template = existing.task;
+
+				if (!template.is_template) {
+					return yield* Effect.fail(
+						`Task ${templateId} is not a template`,
+					);
+				}
+
+				const instance = buildInstanceFromTemplate(template, overrides);
+				const taskFromHooks = yield* runCreateHooks(
+					instance,
+					hookRuntimeOptions,
+				);
+
+				yield* ensureTasksDir(dataDir);
+				yield* writeTaskToDisk(
+					taskFilePath(dataDir, taskFromHooks.id),
+					taskFromHooks,
+				);
+				return taskFromHooks;
+			}),
 	};
 };
 
@@ -960,8 +1116,28 @@ export const TaskRepositoryLive = (
 
 export const todayIso = (): string => new Date().toISOString().slice(0, 10);
 
+const migrateTaskRecord = (record: unknown): unknown => {
+	if (record === null || typeof record !== "object") {
+		return record;
+	}
+	let rec = record as Record<string, unknown>;
+	if ("project" in rec && !("projects" in rec)) {
+		const { project, ...rest } = rec;
+		rec = {
+			...rest,
+			projects:
+				typeof project === "string" ? [project] : [],
+		} as Record<string, unknown>;
+	}
+	if (!("related" in rec)) rec.related = [];
+	if (!("is_template" in rec)) rec.is_template = false;
+	if (!("from_template" in rec)) rec.from_template = null;
+	return rec;
+};
+
 export const parseTaskRecord = (record: unknown): Task | null => {
-	const result = decodeTaskEither(record);
+	const migrated = migrateTaskRecord(record);
+	const result = decodeTaskEither(migrated);
 	return Either.isRight(result) ? result.right : null;
 };
 
@@ -982,10 +1158,11 @@ export const createTaskFromInput = (input: TaskCreateInput): Task => {
 export const applyTaskPatch = (task: Task, patch: TaskPatch): Task => {
 	const normalizedTask = decodeTask(task);
 	const normalizedPatch = decodeTaskPatch(patch);
+	const { from_template: _stripped, ...safePatch } = normalizedPatch;
 
 	return decodeTask({
 		...normalizedTask,
-		...normalizedPatch,
+		...safePatch,
 		updated: todayIso(),
 	});
 };
@@ -1016,6 +1193,45 @@ export const createProjectFromInput = (input: ProjectCreateInput): Project => {
 		id: generateTaskId(normalizedInput.title),
 	});
 };
+
+export const promoteSubtask = (
+	repository: TaskRepositoryService,
+	taskId: string,
+	subtaskIndex: number,
+): Effect.Effect<Task, string> =>
+	Effect.gen(function* () {
+		const parent = yield* repository.getTask(taskId);
+
+		if (parent.is_template) {
+			return yield* Effect.fail(
+				"Cannot promote subtasks on a template. Instantiate the template first.",
+			);
+		}
+
+		if (subtaskIndex < 0 || subtaskIndex >= parent.subtasks.length) {
+			return yield* Effect.fail(
+				`Subtask index ${subtaskIndex} is out of range (0..${parent.subtasks.length - 1})`,
+			);
+		}
+
+		const subtask = parent.subtasks[subtaskIndex];
+
+		const newTask = yield* repository.createTask({
+			title: subtask.text,
+			projects: [...parent.projects],
+			area: parent.area,
+			tags: [...parent.tags],
+			status: subtask.done ? "done" : "backlog",
+			blocked_by: [parent.id],
+		});
+
+		const updatedSubtasks = parent.subtasks.filter(
+			(_, i) => i !== subtaskIndex,
+		);
+		yield* repository.updateTask(taskId, { subtasks: updatedSubtasks });
+
+		return newTask;
+	});
 
 export const applyProjectPatch = (project: Project, patch: ProjectPatch): Project => {
 	const normalizedProject = decodeProject(project);

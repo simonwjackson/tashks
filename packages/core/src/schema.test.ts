@@ -18,7 +18,7 @@ describe("schema", () => {
 			title: "Revive unzen server",
 			status: "active",
 			area: "infrastructure",
-			project: "homelab",
+			projects: ["homelab"],
 			tags: ["hardware", "weekend"],
 			created: "2026-02-16",
 			updated: "2026-02-20",
@@ -41,6 +41,9 @@ describe("schema", () => {
 			recurrence_trigger: "clock",
 			recurrence_strategy: "replace",
 			recurrence_last_generated: "2026-02-24T08:00:00Z",
+			related: ["other-task"],
+			is_template: false,
+			from_template: null,
 		};
 
 		const decode = Schema.decodeUnknownSync(Task);
@@ -61,7 +64,7 @@ describe("schema", () => {
 			title: "Capture outage notes",
 			status: "active",
 			area: "personal",
-			project: null,
+			projects: [],
 			tags: [],
 			urgency: "medium",
 			energy: "medium",
@@ -79,6 +82,9 @@ describe("schema", () => {
 			recurrence_trigger: "clock",
 			recurrence_strategy: "replace",
 			recurrence_last_generated: null,
+			related: [],
+			is_template: false,
+			from_template: null,
 		});
 		expect(decodedInput.created).toMatch(isoDatePattern);
 		expect(decodedInput.updated).toMatch(isoDatePattern);
@@ -89,7 +95,7 @@ describe("schema", () => {
 	it("round-trips TaskPatch through decode + encode", () => {
 		const encodedPatch: Schema.Schema.Encoded<typeof TaskPatch> = {
 			title: "Repair array",
-			project: "homelab",
+			projects: ["homelab"],
 			tags: ["hardware"],
 			nudge_count: 3,
 			recurrence: null,

@@ -6,13 +6,16 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
-import type { Task } from "./schema.js";
+import type { Task, Project } from "./schema.js";
 import {
 	applyPerspectiveToTasks,
 	byCreatedAsc,
 	byDueAsc,
 	byEnergyAsc,
 	byUpdatedDescThenTitle,
+	hasContext,
+	hasDurationMax,
+	hasDurationMin,
 	hasEnergy,
 	hasProject,
 	hasTag,
@@ -22,6 +25,8 @@ import {
 	isDueBefore,
 	isDueThisWeek,
 	isUnblocked,
+	listAreas,
+	listContexts,
 	loadPerspectiveConfig,
 	resolveRelativeDate,
 	wasCompletedBetween,
@@ -35,7 +40,7 @@ const makeTask = (
 	title: overrides.title,
 	status: overrides.status ?? "active",
 	area: overrides.area ?? "personal",
-	project: overrides.project ?? null,
+	projects: overrides.projects ?? [],
 	tags: overrides.tags ?? [],
 	created: overrides.created ?? "2026-02-25",
 	updated: overrides.updated ?? "2026-02-25",
@@ -55,6 +60,9 @@ const makeTask = (
 	recurrence_trigger: overrides.recurrence_trigger ?? "clock",
 	recurrence_strategy: overrides.recurrence_strategy ?? "replace",
 	recurrence_last_generated: overrides.recurrence_last_generated ?? null,
+	related: overrides.related ?? [],
+	is_template: overrides.is_template ?? false,
+	from_template: overrides.from_template ?? null,
 });
 
 const writePerspectiveConfig = async (
@@ -242,20 +250,26 @@ describe("query metadata predicates", () => {
 		const withProject = makeTask({
 			id: "rack-layout",
 			title: "Plan rack layout",
-			project: "homelab",
+			projects: ["homelab"],
+		});
+		const withMultipleProjects = makeTask({
+			id: "cross-project",
+			title: "Cross-project task",
+			projects: ["homelab", "blog-refresh"],
 		});
 		const withOtherProject = makeTask({
 			id: "site-redesign",
 			title: "Site redesign",
-			project: "blog-refresh",
+			projects: ["blog-refresh"],
 		});
 		const withoutProject = makeTask({
 			id: "desk-reset",
 			title: "Desk reset",
-			project: null,
+			projects: [],
 		});
 
 		expect(hasProject("homelab")(withProject)).toBe(true);
+		expect(hasProject("homelab")(withMultipleProjects)).toBe(true);
 		expect(hasProject("homelab")(withOtherProject)).toBe(false);
 		expect(hasProject("homelab")(withoutProject)).toBe(false);
 	});
@@ -579,7 +593,7 @@ describe("perspective config loader", () => {
 		try {
 			await writePerspectiveConfig(
 				dataDir,
-				["broken-perspective:", "  filters:", "    status: maybe"].join("\n"),
+				["broken-perspective:", "  filters: not-an-object"].join("\n"),
 			);
 
 			const result = await Effect.runPromiseExit(
@@ -606,7 +620,7 @@ describe("perspective application", () => {
 				id: "eligible-later",
 				title: "Eligible later",
 				status: "active",
-				project: "homelab",
+				projects: ["homelab"],
 				tags: ["ops", "weekly"],
 				energy: "low",
 				due: "2026-02-27",
@@ -616,7 +630,7 @@ describe("perspective application", () => {
 				id: "eligible-earlier",
 				title: "Eligible earlier",
 				status: "active",
-				project: "homelab",
+				projects: ["homelab"],
 				tags: ["ops"],
 				energy: "low",
 				due: "2026-02-26",
@@ -626,7 +640,7 @@ describe("perspective application", () => {
 				id: "blocked-task",
 				title: "Blocked task",
 				status: "active",
-				project: "homelab",
+				projects: ["homelab"],
 				tags: ["ops"],
 				energy: "low",
 				due: "2026-02-25",
@@ -636,7 +650,7 @@ describe("perspective application", () => {
 				id: "active-blocker",
 				title: "Active blocker",
 				status: "active",
-				project: "homelab",
+				projects: ["homelab"],
 				tags: ["ops"],
 				energy: "high",
 				due: null,
@@ -645,7 +659,7 @@ describe("perspective application", () => {
 				id: "wrong-energy",
 				title: "Wrong energy",
 				status: "active",
-				project: "homelab",
+				projects: ["homelab"],
 				tags: ["ops"],
 				energy: "medium",
 				due: "2026-02-26",
@@ -654,7 +668,7 @@ describe("perspective application", () => {
 				id: "wrong-project",
 				title: "Wrong project",
 				status: "active",
-				project: "chores",
+				projects: ["chores"],
 				tags: ["ops"],
 				energy: "low",
 				due: "2026-02-26",
@@ -797,5 +811,174 @@ describe("perspective application", () => {
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}
+	});
+});
+
+const makeProject = (
+	overrides: Partial<Project> & Pick<Project, "id" | "title">,
+): Project => ({
+	id: overrides.id,
+	title: overrides.title,
+	status: overrides.status ?? "active",
+	area: overrides.area ?? "personal",
+	description: overrides.description ?? "",
+	tags: overrides.tags ?? [],
+	created: overrides.created ?? "2026-02-25",
+	updated: overrides.updated ?? "2026-02-25",
+});
+
+describe("listAreas", () => {
+	it("collects unique areas from tasks and projects, sorted", () => {
+		const tasks = [
+			makeTask({ id: "t1", title: "T1", area: "work" }),
+			makeTask({ id: "t2", title: "T2", area: "personal" }),
+			makeTask({ id: "t3", title: "T3", area: "work" }),
+		];
+		const projects = [
+			makeProject({ id: "p1", title: "P1", area: "infrastructure" }),
+			makeProject({ id: "p2", title: "P2", area: "personal" }),
+		];
+
+		expect(listAreas(tasks, projects)).toEqual([
+			"infrastructure",
+			"personal",
+			"work",
+		]);
+	});
+
+	it("returns empty array when no tasks or projects", () => {
+		expect(listAreas([], [])).toEqual([]);
+	});
+
+	it("works with custom area strings", () => {
+		const tasks = [
+			makeTask({ id: "t1", title: "T1", area: "gardening" }),
+		];
+		const projects = [
+			makeProject({ id: "p1", title: "P1", area: "cooking" }),
+		];
+
+		expect(listAreas(tasks, projects)).toEqual(["cooking", "gardening"]);
+	});
+});
+
+describe("duration predicates", () => {
+	it("hasDurationMin matches tasks with estimated_minutes >= threshold", () => {
+		const short = makeTask({ id: "short", title: "Short", estimated_minutes: 10 });
+		const exact = makeTask({ id: "exact", title: "Exact", estimated_minutes: 30 });
+		const long = makeTask({ id: "long", title: "Long", estimated_minutes: 60 });
+		const none = makeTask({ id: "none", title: "None", estimated_minutes: null });
+
+		expect(hasDurationMin(30)(short)).toBe(false);
+		expect(hasDurationMin(30)(exact)).toBe(true);
+		expect(hasDurationMin(30)(long)).toBe(true);
+		expect(hasDurationMin(30)(none)).toBe(false);
+	});
+
+	it("hasDurationMax matches tasks with estimated_minutes <= threshold", () => {
+		const short = makeTask({ id: "short", title: "Short", estimated_minutes: 10 });
+		const exact = makeTask({ id: "exact", title: "Exact", estimated_minutes: 30 });
+		const long = makeTask({ id: "long", title: "Long", estimated_minutes: 60 });
+		const none = makeTask({ id: "none", title: "None", estimated_minutes: null });
+
+		expect(hasDurationMax(30)(short)).toBe(true);
+		expect(hasDurationMax(30)(exact)).toBe(true);
+		expect(hasDurationMax(30)(long)).toBe(false);
+		expect(hasDurationMax(30)(none)).toBe(false);
+	});
+});
+
+describe("context predicate", () => {
+	it("hasContext matches tasks with matching context", () => {
+		const atHome = makeTask({ id: "home", title: "Home task", context: "@home" });
+		const atWork = makeTask({ id: "work", title: "Work task", context: "@work" });
+		const noContext = makeTask({ id: "none", title: "No context", context: "" });
+
+		expect(hasContext("@home")(atHome)).toBe(true);
+		expect(hasContext("@home")(atWork)).toBe(false);
+		expect(hasContext("@home")(noContext)).toBe(false);
+	});
+});
+
+describe("listContexts", () => {
+	it("returns sorted unique non-empty context values", () => {
+		const tasks = [
+			makeTask({ id: "t1", title: "T1", context: "@work" }),
+			makeTask({ id: "t2", title: "T2", context: "@home" }),
+			makeTask({ id: "t3", title: "T3", context: "@work" }),
+			makeTask({ id: "t4", title: "T4", context: "" }),
+		];
+
+		expect(listContexts(tasks)).toEqual(["@home", "@work"]);
+	});
+
+	it("returns empty array when no tasks have contexts", () => {
+		expect(listContexts([])).toEqual([]);
+		expect(listContexts([makeTask({ id: "t1", title: "T1", context: "" })])).toEqual([]);
+	});
+});
+
+describe("applyPerspectiveToTasks with new filters", () => {
+	it("filters by duration_min and duration_max", () => {
+		const tasks = [
+			makeTask({ id: "short", title: "Short", estimated_minutes: 10 }),
+			makeTask({ id: "medium", title: "Medium", estimated_minutes: 30 }),
+			makeTask({ id: "long", title: "Long", estimated_minutes: 60 }),
+			makeTask({ id: "none", title: "None", estimated_minutes: null }),
+		];
+
+		const filtered = applyPerspectiveToTasks(
+			tasks,
+			{ filters: { duration_min: 15, duration_max: 45 } },
+			"2026-02-25",
+		);
+
+		expect(filtered.map((t) => t.id)).toEqual(["medium"]);
+	});
+
+	it("filters by context", () => {
+		const tasks = [
+			makeTask({ id: "home", title: "Home", context: "@home" }),
+			makeTask({ id: "work", title: "Work", context: "@work" }),
+		];
+
+		const filtered = applyPerspectiveToTasks(
+			tasks,
+			{ filters: { context: "@home" } },
+			"2026-02-25",
+		);
+
+		expect(filtered.map((t) => t.id)).toEqual(["home"]);
+	});
+
+	it("excludes templates by default", () => {
+		const tasks = [
+			makeTask({ id: "regular", title: "Regular" }),
+			makeTask({ id: "template", title: "Template", is_template: true }),
+		];
+
+		const filtered = applyPerspectiveToTasks(
+			tasks,
+			{ filters: {} },
+			"2026-02-25",
+		);
+
+		expect(filtered.map((t) => t.id)).toEqual(["regular"]);
+	});
+
+	it("includes templates when include_templates is true", () => {
+		const tasks = [
+			makeTask({ id: "regular", title: "Regular" }),
+			makeTask({ id: "template", title: "Template", is_template: true }),
+		];
+
+		const filtered = applyPerspectiveToTasks(
+			tasks,
+			{ filters: { include_templates: true } },
+			"2026-02-25",
+		);
+
+		expect(filtered.map((t) => t.id)).toContain("template");
+		expect(filtered.map((t) => t.id)).toContain("regular");
 	});
 });

@@ -2,38 +2,16 @@ import * as Schema from "effect/Schema";
 
 const currentDateIso = (): string => new Date().toISOString().slice(0, 10);
 
-export const TaskStatus = Schema.Literal(
-	"active",
-	"backlog",
-	"blocked",
-	"done",
-	"dropped",
-	"on-hold",
-);
+export const TaskStatus = Schema.String;
 export type TaskStatus = Schema.Schema.Type<typeof TaskStatus>;
 
-export const TaskArea = Schema.Literal(
-	"health",
-	"infrastructure",
-	"work",
-	"personal",
-	"blog",
-	"code",
-	"home",
-	"side-projects",
-);
+export const TaskArea = Schema.String;
 export type TaskArea = Schema.Schema.Type<typeof TaskArea>;
 
-export const TaskUrgency = Schema.Literal(
-	"low",
-	"medium",
-	"high",
-	"urgent",
-	"critical",
-);
+export const TaskUrgency = Schema.String;
 export type TaskUrgency = Schema.Schema.Type<typeof TaskUrgency>;
 
-export const TaskEnergy = Schema.Literal("low", "medium", "high");
+export const TaskEnergy = Schema.String;
 export type TaskEnergy = Schema.Schema.Type<typeof TaskEnergy>;
 
 export const Subtask = Schema.Struct({
@@ -42,12 +20,12 @@ export const Subtask = Schema.Struct({
 });
 export type Subtask = Schema.Schema.Type<typeof Subtask>;
 
-export const TaskRecurrenceTrigger = Schema.Literal("clock", "completion");
+export const TaskRecurrenceTrigger = Schema.String;
 export type TaskRecurrenceTrigger = Schema.Schema.Type<
 	typeof TaskRecurrenceTrigger
 >;
 
-export const TaskRecurrenceStrategy = Schema.Literal("replace", "accumulate");
+export const TaskRecurrenceStrategy = Schema.String;
 export type TaskRecurrenceStrategy = Schema.Schema.Type<
 	typeof TaskRecurrenceStrategy
 >;
@@ -57,7 +35,7 @@ export const Task = Schema.Struct({
 	title: Schema.String,
 	status: TaskStatus,
 	area: TaskArea,
-	project: Schema.NullOr(Schema.String),
+	projects: Schema.Array(Schema.String),
 	tags: Schema.Array(Schema.String),
 	created: Schema.String,
 	updated: Schema.String,
@@ -77,6 +55,9 @@ export const Task = Schema.Struct({
 	recurrence_trigger: TaskRecurrenceTrigger,
 	recurrence_strategy: TaskRecurrenceStrategy,
 	recurrence_last_generated: Schema.NullOr(Schema.String),
+	related: Schema.Array(Schema.String),
+	is_template: Schema.Boolean,
+	from_template: Schema.NullOr(Schema.String),
 });
 export type Task = Schema.Schema.Type<typeof Task>;
 
@@ -84,8 +65,8 @@ export const TaskCreateInput = Schema.Struct({
 	title: Schema.String,
 	status: Schema.optionalWith(TaskStatus, { default: () => "active" }),
 	area: Schema.optionalWith(TaskArea, { default: () => "personal" }),
-	project: Schema.optionalWith(Schema.NullOr(Schema.String), {
-		default: () => null,
+	projects: Schema.optionalWith(Schema.Array(Schema.String), {
+		default: () => [],
 	}),
 	tags: Schema.optionalWith(Schema.Array(Schema.String), {
 		default: () => [],
@@ -140,6 +121,15 @@ export const TaskCreateInput = Schema.Struct({
 	recurrence_last_generated: Schema.optionalWith(Schema.NullOr(Schema.String), {
 		default: () => null,
 	}),
+	related: Schema.optionalWith(Schema.Array(Schema.String), {
+		default: () => [],
+	}),
+	is_template: Schema.optionalWith(Schema.Boolean, {
+		default: () => false,
+	}),
+	from_template: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
 });
 export type TaskCreateInput = Schema.Schema.Encoded<typeof TaskCreateInput>;
 
@@ -148,7 +138,7 @@ export const TaskPatch = Schema.Struct({
 	title: Schema.optionalWith(Schema.String, { exact: true }),
 	status: Schema.optionalWith(TaskStatus, { exact: true }),
 	area: Schema.optionalWith(TaskArea, { exact: true }),
-	project: Schema.optionalWith(Schema.NullOr(Schema.String), { exact: true }),
+	projects: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
 	tags: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
 	created: Schema.optionalWith(Schema.String, { exact: true }),
 	updated: Schema.optionalWith(Schema.String, { exact: true }),
@@ -186,10 +176,15 @@ export const TaskPatch = Schema.Struct({
 	recurrence_last_generated: Schema.optionalWith(Schema.NullOr(Schema.String), {
 		exact: true,
 	}),
+	related: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
+	is_template: Schema.optionalWith(Schema.Boolean, { exact: true }),
+	from_template: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		exact: true,
+	}),
 });
 export type TaskPatch = Schema.Schema.Encoded<typeof TaskPatch>;
 
-export const ProjectStatus = Schema.Literal("active", "on-hold", "done", "dropped");
+export const ProjectStatus = Schema.String;
 export type ProjectStatus = Schema.Schema.Type<typeof ProjectStatus>;
 
 export const Project = Schema.Struct({
@@ -206,8 +201,8 @@ export type Project = Schema.Schema.Type<typeof Project>;
 
 export const ProjectCreateInput = Schema.Struct({
 	title: Schema.String,
-	status: Schema.optionalWith(ProjectStatus, { default: () => "active" as const }),
-	area: Schema.optionalWith(TaskArea, { default: () => "personal" as const }),
+	status: Schema.optionalWith(ProjectStatus, { default: () => "active" }),
+	area: Schema.optionalWith(TaskArea, { default: () => "personal" }),
 	description: Schema.optionalWith(Schema.String, { default: () => "" }),
 	tags: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] as string[] }),
 	created: Schema.optionalWith(Schema.String, { default: currentDateIso }),

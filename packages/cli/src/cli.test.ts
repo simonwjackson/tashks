@@ -131,6 +131,9 @@ describe("list filter resolution", () => {
 			dueAfter: Option.some("2026-03-03"),
 			unblockedOnly: true,
 			date: Option.some("2026-03-05"),
+			durationMin: Option.some(15),
+			durationMax: Option.some(60),
+			context: Option.some("@home"),
 		});
 
 		expect(filters).toEqual({
@@ -142,6 +145,9 @@ describe("list filter resolution", () => {
 			due_after: "2026-03-03",
 			unblocked_only: true,
 			date: "2026-03-05",
+			duration_min: 15,
+			duration_max: 60,
+			context: "@home",
 		});
 	});
 
@@ -155,6 +161,9 @@ describe("list filter resolution", () => {
 			dueAfter: Option.none(),
 			unblockedOnly: false,
 			date: Option.none(),
+			durationMin: Option.none(),
+			durationMax: Option.none(),
+			context: Option.none(),
 		});
 
 		expect(filters).toEqual({});
@@ -167,7 +176,7 @@ describe("create input resolution", () => {
 			title: "Revive unzen server",
 			status: Option.some("active"),
 			area: Option.some("infrastructure"),
-			project: Option.some("homelab"),
+			project: ["homelab"],
 			tags: Option.some("hardware, weekend, ,ops"),
 			due: Option.some("2026-03-01"),
 			deferUntil: Option.some("2026-02-28"),
@@ -177,13 +186,15 @@ describe("create input resolution", () => {
 			recurrence: Option.some("FREQ=WEEKLY;BYDAY=MO"),
 			recurrenceTrigger: Option.some("completion"),
 			recurrenceStrategy: Option.some("accumulate"),
+			duration: Option.some(120),
+			related: Option.some("task-1,task-2"),
 		});
 
 		expect(input).toEqual({
 			title: "Revive unzen server",
 			status: "active",
 			area: "infrastructure",
-			project: "homelab",
+			projects: ["homelab"],
 			tags: ["hardware", "weekend", "ops"],
 			due: "2026-03-01",
 			defer_until: "2026-02-28",
@@ -193,6 +204,8 @@ describe("create input resolution", () => {
 			recurrence: "FREQ=WEEKLY;BYDAY=MO",
 			recurrence_trigger: "completion",
 			recurrence_strategy: "accumulate",
+			estimated_minutes: 120,
+			related: ["task-1", "task-2"],
 		});
 	});
 
@@ -201,7 +214,7 @@ describe("create input resolution", () => {
 			title: "Capture outage notes",
 			status: Option.none(),
 			area: Option.none(),
-			project: Option.none(),
+			project: [],
 			tags: Option.some(" ,  , "),
 			due: Option.none(),
 			deferUntil: Option.none(),
@@ -211,6 +224,8 @@ describe("create input resolution", () => {
 			recurrence: Option.none(),
 			recurrenceTrigger: Option.none(),
 			recurrenceStrategy: Option.none(),
+			duration: Option.none(),
+			related: Option.none(),
 		});
 
 		expect(input).toEqual({
@@ -225,7 +240,7 @@ describe("update patch resolution", () => {
 			title: Option.some("Revive unzen server"),
 			status: Option.some("active"),
 			area: Option.some("infrastructure"),
-			project: Option.some("homelab"),
+			project: ["homelab"],
 			tags: Option.some("hardware, weekend, ,ops"),
 			due: Option.some("2026-03-01"),
 			deferUntil: Option.some("2026-02-28"),
@@ -235,13 +250,15 @@ describe("update patch resolution", () => {
 			recurrence: Option.some("FREQ=WEEKLY;BYDAY=MO"),
 			recurrenceTrigger: Option.some("completion"),
 			recurrenceStrategy: Option.some("accumulate"),
+			duration: Option.some(90),
+			related: Option.some("task-a,task-b"),
 		});
 
 		expect(patch).toEqual({
 			title: "Revive unzen server",
 			status: "active",
 			area: "infrastructure",
-			project: "homelab",
+			projects: ["homelab"],
 			tags: ["hardware", "weekend", "ops"],
 			due: "2026-03-01",
 			defer_until: "2026-02-28",
@@ -251,6 +268,8 @@ describe("update patch resolution", () => {
 			recurrence: "FREQ=WEEKLY;BYDAY=MO",
 			recurrence_trigger: "completion",
 			recurrence_strategy: "accumulate",
+			estimated_minutes: 90,
+			related: ["task-a", "task-b"],
 		});
 	});
 
@@ -259,7 +278,7 @@ describe("update patch resolution", () => {
 			title: Option.none(),
 			status: Option.none(),
 			area: Option.none(),
-			project: Option.none(),
+			project: [],
 			tags: Option.some(" ,  , "),
 			due: Option.none(),
 			deferUntil: Option.none(),
@@ -269,6 +288,8 @@ describe("update patch resolution", () => {
 			recurrence: Option.none(),
 			recurrenceTrigger: Option.none(),
 			recurrenceStrategy: Option.none(),
+			duration: Option.none(),
+			related: Option.none(),
 		});
 
 		expect(patch).toEqual({});
@@ -415,6 +436,12 @@ describe("cli parsing", () => {
 				"--unblocked-only",
 				"--date",
 				"2026-03-05",
+				"--duration-min",
+				"15",
+				"--duration-max",
+				"120",
+				"--context",
+				"@home",
 			]).pipe(Effect.provide(NodeContext.layer)),
 		);
 
@@ -435,6 +462,9 @@ describe("cli parsing", () => {
 					due_after: "2026-03-03",
 					unblocked_only: true,
 					date: "2026-03-05",
+					duration_min: 15,
+					duration_max: 120,
+					context: "@home",
 				},
 			},
 		]);
@@ -529,6 +559,10 @@ describe("cli parsing", () => {
 				"completion",
 				"--recurrence-strategy",
 				"accumulate",
+				"--duration",
+				"120",
+				"--related",
+				"task-a,task-b",
 			]).pipe(Effect.provide(NodeContext.layer)),
 		);
 
@@ -544,7 +578,7 @@ describe("cli parsing", () => {
 					title: "Revive unzen server",
 					status: "active",
 					area: "infrastructure",
-					project: "homelab",
+					projects: ["homelab"],
 					tags: ["hardware", "weekend", "ops"],
 					due: "2026-03-01",
 					defer_until: "2026-02-28",
@@ -554,6 +588,8 @@ describe("cli parsing", () => {
 					recurrence: "FREQ=WEEKLY;BYDAY=MO",
 					recurrence_trigger: "completion",
 					recurrence_strategy: "accumulate",
+					estimated_minutes: 120,
+					related: ["task-a", "task-b"],
 				},
 			},
 		]);
@@ -610,6 +646,10 @@ describe("cli parsing", () => {
 				"completion",
 				"--recurrence-strategy",
 				"accumulate",
+				"--duration",
+				"90",
+				"--related",
+				"task-a,task-b",
 				"--id",
 				"revive-unzen",
 			]).pipe(Effect.provide(NodeContext.layer)),
@@ -628,7 +668,7 @@ describe("cli parsing", () => {
 					title: "Revive unzen server",
 					status: "active",
 					area: "infrastructure",
-					project: "homelab",
+					projects: ["homelab"],
 					tags: ["hardware", "weekend", "ops"],
 					due: "2026-03-01",
 					defer_until: "2026-02-28",
@@ -638,6 +678,8 @@ describe("cli parsing", () => {
 					recurrence: "FREQ=WEEKLY;BYDAY=MO",
 					recurrence_trigger: "completion",
 					recurrence_strategy: "accumulate",
+					estimated_minutes: 90,
+					related: ["task-a", "task-b"],
 				},
 			},
 		]);
@@ -1154,7 +1196,7 @@ describe("cli smoke", () => {
 
 			expect(created.title).toBe("Revive unzen server");
 			expect(created.area).toBe("infrastructure");
-			expect(created.project).toBe("homelab");
+			expect(created.projects).toEqual(["homelab"]);
 			expect(created.tags).toEqual(["hardware", "weekend"]);
 			expect(created.status).toBe("active");
 			expect(created.id).toMatch(/^revive-unzen-server-[a-z0-9]{6}$/);
@@ -1199,7 +1241,7 @@ describe("cli smoke", () => {
 
 			expect(updated.id).toBe(id);
 			expect(updated.status).toBe("backlog");
-			expect(updated.project).toBe("lab-refresh");
+			expect(updated.projects).toEqual(["lab-refresh"]);
 			expect(updated.tags).toEqual(["hardware", "rack"]);
 			expect(updated.context).toBe("Start with rack shelf and power checks");
 
@@ -1850,5 +1892,131 @@ describe("project cli smoke", () => {
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("template cli parsing", () => {
+	const noop = () => Effect.void;
+
+	it("parses `tashks template create` with flags", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly input: unknown;
+		}> = [];
+		const program = makeCli(
+			noop, // execute
+			noop, // list
+			noop, // get
+			noop, // create
+			noop, // update
+			noop, // delete
+			noop, // highlight
+			noop, // complete
+			noop, // recurrenceCheck
+			noop, // perspective
+			noop, // perspectives
+			noop, // workLog
+			noop, // workLogList
+			noop, // workLogCreate
+			noop, // workLogUpdate
+			noop, // workLogDelete
+			noop, // migrate
+			noop, // project
+			noop, // projectList
+			noop, // projectGet
+			noop, // projectCreate
+			noop, // projectUpdate
+			noop, // projectDelete
+			noop, // projectTasks
+			noop, // projectSummary
+			noop, // promote
+			noop, // areas
+			noop, // contexts
+			noop, // template
+			noop, // templateList
+			(options, input) =>
+				Effect.sync(() => {
+					captured.push({ options, input });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"template",
+				"create",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"--title",
+				"Weekly Prep",
+				"--tags",
+				"prep,weekly",
+				"--duration",
+				"30",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0]?.options.dataDir).toBe("/tmp/tasks-data");
+		expect(captured[0]?.input).toMatchObject({
+			title: "Weekly Prep",
+			tags: ["prep", "weekly"],
+			estimated_minutes: 30,
+			is_template: true,
+		});
+	});
+
+	it("parses `tashks template instantiate` with overrides", async () => {
+		const captured: Array<{
+			readonly options: GlobalCliOptions;
+			readonly templateId: string;
+			readonly overrides: Record<string, unknown>;
+		}> = [];
+		const program = makeCli(
+			noop, noop, noop, noop, noop, noop, noop, noop, noop, noop,
+			noop, noop, noop, noop, noop, noop, noop, noop, noop, noop,
+			noop, noop, noop, noop, noop, noop, noop, noop, noop, noop,
+			noop, // templateCreate
+			(options, templateId, overrides) =>
+				Effect.sync(() => {
+					captured.push({ options, templateId, overrides });
+				}),
+		);
+
+		await Effect.runPromise(
+			program([
+				"bun",
+				"cli.ts",
+				"template",
+				"instantiate",
+				"--data-dir",
+				"/tmp/tasks-data",
+				"--pretty",
+				"--id",
+				"weekly-prep",
+				"--title",
+				"This Week",
+				"--due",
+				"2026-03-01",
+				"--defer-until",
+				"2026-02-28",
+				"--status",
+				"active",
+				"--project",
+				"ops",
+			]).pipe(Effect.provide(NodeContext.layer)),
+		);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0]?.templateId).toBe("weekly-prep");
+		expect(captured[0]?.overrides).toEqual({
+			title: "This Week",
+			due: "2026-03-01",
+			defer_until: "2026-02-28",
+			status: "active",
+			projects: ["ops"],
+		});
 	});
 });

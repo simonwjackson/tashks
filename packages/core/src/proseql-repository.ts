@@ -22,6 +22,7 @@ import {
 import {
 	byUpdatedDescThenTitle,
 	isStalerThan,
+	listContexts as listContextsFromTasks,
 } from "./query.js";
 import {
 	type HookRuntimeOptions,
@@ -43,6 +44,7 @@ import {
 	applyTaskPatch,
 	applyWorkLogPatch,
 	applyProjectPatch,
+	buildInstanceFromTemplate,
 	createTaskFromInput,
 	createProjectFromInput,
 } from "./repository.js";
@@ -530,6 +532,42 @@ const makeProseqlRepository = (
 				Effect.gen(function* () {
 					yield* saveProject(project);
 					return project;
+				}),
+
+			listContexts: () =>
+				Effect.map(collectTasks(), (tasks) =>
+					listContextsFromTasks(tasks),
+				),
+
+			getRelated: (id) =>
+				Effect.gen(function* () {
+					const target = yield* findTask(id);
+					const allTasks = yield* collectTasks();
+					const targetRelated = new Set(target.related);
+					return allTasks.filter(
+						(t) =>
+							t.id !== id &&
+							(targetRelated.has(t.id) || t.related.includes(id)),
+					);
+				}),
+
+			instantiateTemplate: (templateId, overrides) =>
+				Effect.gen(function* () {
+					const template = yield* findTask(templateId);
+
+					if (!template.is_template) {
+						return yield* Effect.fail(
+							`Task ${templateId} is not a template`,
+						);
+					}
+
+					const instance = buildInstanceFromTemplate(template, overrides);
+					const taskFromHooks = yield* runCreateHooks(
+						instance,
+						hookRuntimeOptions,
+					);
+					yield* saveTask(taskFromHooks);
+					return taskFromHooks;
 				}),
 		};
 

@@ -16,9 +16,11 @@ import * as Option from "effect/Option";
 import YAML from "yaml";
 import type { Task, WorkLogEntry, Project } from "./schema.js";
 import {
+	applyListTaskFilters,
 	applyTaskPatch,
 	applyWorkLogPatch,
 	applyProjectPatch,
+	buildInstanceFromTemplate,
 	createTaskFromInput,
 	createProjectFromInput,
 	discoverHooksForEvent,
@@ -26,6 +28,7 @@ import {
 	parseTaskRecord,
 	parseWorkLogRecord,
 	parseProjectRecord,
+	promoteSubtask,
 	TaskRepository,
 	TaskRepositoryLive,
 	type ListTasksFilters,
@@ -42,7 +45,7 @@ const baseTask = (): Task => ({
 	title: "Revive unzen server",
 	status: "active",
 	area: "infrastructure",
-	project: "homelab",
+	projects: ["homelab"],
 	tags: ["hardware", "weekend"],
 	created: "2026-02-16",
 	updated: "2026-02-20",
@@ -65,6 +68,9 @@ const baseTask = (): Task => ({
 	recurrence_trigger: "clock",
 	recurrence_strategy: "replace",
 	recurrence_last_generated: "2026-02-24T08:00:00Z",
+	related: [],
+	is_template: false,
+	from_template: null,
 });
 
 const baseWorkLogEntry = (): WorkLogEntry => ({
@@ -103,6 +109,9 @@ const makeRepositoryService = (
 	updateProject: () => unexpectedCall(),
 	deleteProject: () => unexpectedCall(),
 	importProject: () => unexpectedCall(),
+	listContexts: () => Effect.succeed([]),
+	getRelated: () => unexpectedCall(),
+	instantiateTemplate: () => unexpectedCall(),
 	...overrides,
 });
 
@@ -236,7 +245,7 @@ describe("repository pure helpers", () => {
 	it("parseTaskRecord returns task for valid data and null for invalid data", () => {
 		const task = baseTask();
 		expect(parseTaskRecord(task)).toEqual(task);
-		expect(parseTaskRecord({ ...task, status: "invalid-status" })).toBeNull();
+		expect(parseTaskRecord({ ...task, status: 123 })).toBeNull();
 	});
 
 	it("parseWorkLogRecord returns entry for valid data and null for invalid data", () => {
@@ -253,7 +262,7 @@ describe("repository pure helpers", () => {
 			title: "Capture outage notes",
 			status: "active",
 			area: "personal",
-			project: null,
+			projects: [],
 			tags: [],
 			urgency: "medium",
 			energy: "medium",
@@ -289,6 +298,17 @@ describe("repository pure helpers", () => {
 		expect(patched.updated).toBe(todayIso());
 		expect(patched.id).toBe(task.id);
 		expect(patched.created).toBe(task.created);
+	});
+
+	it("applyTaskPatch strips from_template from patch to enforce read-only", () => {
+		const task = { ...baseTask(), from_template: "original-template" };
+		const patched = applyTaskPatch(task, {
+			title: "New title",
+			from_template: "sneaky-override",
+		});
+
+		expect(patched.from_template).toBe("original-template");
+		expect(patched.title).toBe("New title");
 	});
 
 	it("applyWorkLogPatch merges only provided fields", () => {
@@ -441,7 +461,7 @@ describe("TaskRepository listTasks", () => {
 					title: "Match task",
 					status: "active",
 					area: "work",
-					project: "homelab",
+					projects: ["homelab"],
 					tags: ["hardware", "weekend"],
 					due: "2026-03-05",
 					defer_until: "2026-03-01",
@@ -454,7 +474,7 @@ describe("TaskRepository listTasks", () => {
 					title: "Done blocker",
 					status: "done",
 					area: "work",
-					project: "homelab",
+					projects: ["homelab"],
 					tags: ["ops"],
 					due: null,
 					defer_until: null,
@@ -467,7 +487,7 @@ describe("TaskRepository listTasks", () => {
 					title: "Active blocker",
 					status: "active",
 					area: "work",
-					project: null,
+					projects: [],
 					tags: ["ops"],
 					due: null,
 					defer_until: null,
@@ -480,7 +500,7 @@ describe("TaskRepository listTasks", () => {
 					title: "Blocked task",
 					status: "active",
 					area: "work",
-					project: "homelab",
+					projects: ["homelab"],
 					tags: ["hardware"],
 					due: "2026-03-05",
 					defer_until: "2026-03-01",
@@ -493,7 +513,7 @@ describe("TaskRepository listTasks", () => {
 					title: "Due too early",
 					status: "active",
 					area: "work",
-					project: "homelab",
+					projects: ["homelab"],
 					tags: ["hardware"],
 					due: "2026-03-02",
 					defer_until: "2026-03-01",
@@ -506,7 +526,7 @@ describe("TaskRepository listTasks", () => {
 					title: "Deferred past date",
 					status: "active",
 					area: "work",
-					project: "homelab",
+					projects: ["homelab"],
 					tags: ["hardware"],
 					due: "2026-03-05",
 					defer_until: "2026-03-10",
@@ -519,7 +539,7 @@ describe("TaskRepository listTasks", () => {
 					title: "Wrong status",
 					status: "backlog",
 					area: "work",
-					project: "homelab",
+					projects: ["homelab"],
 					tags: ["hardware"],
 					due: "2026-03-05",
 					defer_until: "2026-03-01",
@@ -532,7 +552,7 @@ describe("TaskRepository listTasks", () => {
 					title: "Wrong area",
 					status: "active",
 					area: "personal",
-					project: "homelab",
+					projects: ["homelab"],
 					tags: ["hardware"],
 					due: "2026-03-05",
 					defer_until: "2026-03-01",
@@ -545,7 +565,7 @@ describe("TaskRepository listTasks", () => {
 					title: "Wrong project",
 					status: "active",
 					area: "work",
-					project: "side-quest",
+					projects: ["side-quest"],
 					tags: ["hardware"],
 					due: "2026-03-05",
 					defer_until: "2026-03-01",
@@ -558,7 +578,7 @@ describe("TaskRepository listTasks", () => {
 					title: "Wrong tag",
 					status: "active",
 					area: "work",
-					project: "homelab",
+					projects: ["homelab"],
 					tags: ["errands"],
 					due: "2026-03-05",
 					defer_until: "2026-03-01",
@@ -571,7 +591,7 @@ describe("TaskRepository listTasks", () => {
 					title: "Due too late",
 					status: "active",
 					area: "work",
-					project: "homelab",
+					projects: ["homelab"],
 					tags: ["hardware"],
 					due: "2026-03-09",
 					defer_until: "2026-03-01",
@@ -680,7 +700,7 @@ recurrence_last_generated: null
 			expect(listed[0]).toMatchObject({
 				id: "literal-primary",
 				area: "code",
-				project: "tasks",
+				projects: ["tasks"],
 				tags: ["yaml", "literal"],
 				due: "2026-03-01",
 				subtasks: [
@@ -694,7 +714,7 @@ recurrence_last_generated: null
 			);
 			expect(fetched).toMatchObject({
 				id: "literal-secondary",
-				project: null,
+				projects: [],
 				blocked_by: ["literal-primary"],
 				recurrence_trigger: "completion",
 				recurrence_strategy: "accumulate",
@@ -854,10 +874,13 @@ describe("TaskRepository service", () => {
 			"deleteWorkLogEntry",
 			"generateNextRecurrence",
 			"getProject",
+			"getRelated",
 			"getTask",
 			"importProject",
 			"importTask",
 			"importWorkLogEntry",
+			"instantiateTemplate",
+			"listContexts",
 			"listProjects",
 			"listStale",
 			"listTasks",
@@ -876,7 +899,7 @@ describe("TaskRepository service", () => {
 			const created = await runRepository(dataDir, (repository) =>
 				repository.createTask({
 					title: "Capture outage notes",
-					project: "ops",
+					projects: ["ops"],
 					tags: ["incident"],
 					area: "work",
 				}),
@@ -895,6 +918,61 @@ describe("TaskRepository service", () => {
 				repository.getTask(created.id),
 			);
 			expect(fetched).toEqual(created);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("createTask fails when related references a template", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-create-tmpl-ref-"));
+		try {
+			const template: Task = {
+				...baseTask(),
+				id: "tmpl-1",
+				title: "Template",
+				is_template: true,
+				recurrence: null,
+			};
+			await writeTaskFiles(dataDir, [template]);
+
+			const result = await runRepositoryExit(dataDir, (repository) =>
+				repository.createTask({
+					title: "Normal task",
+					related: ["tmpl-1"],
+				}),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+			if (Exit.isFailure(result)) {
+				const failure = Option.getOrNull(Cause.failureOption(result.cause));
+				expect(failure).toContain("Cannot reference template(s) in related");
+			}
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("updateTask fails when related references a template", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-update-tmpl-ref-"));
+		try {
+			const template: Task = {
+				...baseTask(),
+				id: "tmpl-1",
+				title: "Template",
+				is_template: true,
+				recurrence: null,
+			};
+			await writeTaskFiles(dataDir, [baseTask(), template]);
+
+			const result = await runRepositoryExit(dataDir, (repository) =>
+				repository.updateTask("revive-unzen", {
+					related: ["tmpl-1"],
+				}),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+			if (Exit.isFailure(result)) {
+				const failure = Option.getOrNull(Cause.failureOption(result.cause));
+				expect(failure).toContain("Cannot reference template(s) in related");
+			}
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}
@@ -2204,6 +2282,370 @@ describe("project CRUD via TaskRepositoryLive", () => {
 				Effect.flatMap(repo, (r) => r.getProject(project.id)),
 			);
 			expect(fetched).toEqual(project);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("parseTaskRecord migration", () => {
+	it("migrates old project string to projects array", () => {
+		const record = {
+			...baseTask(),
+			project: "homelab",
+		};
+		delete (record as any).projects;
+		const result = parseTaskRecord(record);
+		expect(result).not.toBeNull();
+		expect(result!.projects).toEqual(["homelab"]);
+	});
+
+	it("migrates old project null to empty projects array", () => {
+		const record = {
+			...baseTask(),
+			project: null,
+		};
+		delete (record as any).projects;
+		const result = parseTaskRecord(record);
+		expect(result).not.toBeNull();
+		expect(result!.projects).toEqual([]);
+	});
+
+	it("does not migrate when projects already present", () => {
+		const record = baseTask();
+		const result = parseTaskRecord(record);
+		expect(result).not.toBeNull();
+		expect(result!.projects).toEqual(["homelab"]);
+	});
+});
+
+describe("promoteSubtask", () => {
+	it("promotes a subtask to a full task", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-promote-"));
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+
+			const newTask = await runRepository(dataDir, (repository) =>
+				promoteSubtask(repository, "revive-unzen", 1),
+			);
+
+			expect(newTask.title).toBe("Reassemble drives");
+			expect(newTask.status).toBe("backlog");
+			expect(newTask.projects).toEqual(["homelab"]);
+			expect(newTask.area).toBe("infrastructure");
+			expect(newTask.tags).toEqual(["hardware", "weekend"]);
+			expect(newTask.blocked_by).toEqual(["revive-unzen"]);
+
+			const parent = await runRepository(dataDir, (repository) =>
+				repository.getTask("revive-unzen"),
+			);
+			expect(parent.subtasks).toHaveLength(1);
+			expect(parent.subtasks[0]?.text).toBe("Test PSU");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("promotes a done subtask with done status", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-promote-done-"));
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+
+			const newTask = await runRepository(dataDir, (repository) =>
+				promoteSubtask(repository, "revive-unzen", 0),
+			);
+
+			expect(newTask.title).toBe("Test PSU");
+			expect(newTask.status).toBe("done");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("fails for out-of-range index", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-promote-range-"));
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+
+			const result = await runRepositoryExit(dataDir, (repository) =>
+				promoteSubtask(repository, "revive-unzen", 5),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("refuses to promote subtasks on a template", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-promote-template-"));
+		try {
+			const templateTask: Task = {
+				...baseTask(),
+				is_template: true,
+			};
+			await writeTaskFiles(dataDir, [templateTask]);
+
+			const result = await runRepositoryExit(dataDir, (repository) =>
+				promoteSubtask(repository, "revive-unzen", 0),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+			if (Exit.isFailure(result)) {
+				const failure = Option.getOrNull(Cause.failureOption(result.cause));
+				expect(failure).toContain("Cannot promote subtasks on a template");
+			}
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("migrateTaskRecord", () => {
+	it("adds defaults for new fields on old records", () => {
+		const oldRecord = {
+			id: "old-task",
+			title: "Old task",
+			status: "active",
+			area: "personal",
+			projects: [],
+			tags: [],
+			created: "2026-01-01",
+			updated: "2026-01-01",
+			urgency: "medium",
+			energy: "medium",
+			due: null,
+			context: "",
+			subtasks: [],
+			blocked_by: [],
+			estimated_minutes: null,
+			actual_minutes: null,
+			completed_at: null,
+			last_surfaced: null,
+			defer_until: null,
+			nudge_count: 0,
+			recurrence: null,
+			recurrence_trigger: "clock",
+			recurrence_strategy: "replace",
+			recurrence_last_generated: null,
+		};
+
+		const parsed = parseTaskRecord(oldRecord);
+		expect(parsed).not.toBeNull();
+		expect(parsed!.related).toEqual([]);
+		expect(parsed!.is_template).toBe(false);
+		expect(parsed!.from_template).toBeNull();
+	});
+});
+
+describe("applyListTaskFilters with new filters", () => {
+	const makeTasks = (): Task[] => [
+		{
+			...baseTask(),
+			id: "short",
+			title: "Short",
+			estimated_minutes: 10,
+			context: "@home",
+			is_template: false,
+		},
+		{
+			...baseTask(),
+			id: "medium",
+			title: "Medium",
+			estimated_minutes: 30,
+			context: "@work",
+			is_template: false,
+		},
+		{
+			...baseTask(),
+			id: "long",
+			title: "Long",
+			estimated_minutes: 60,
+			context: "@home",
+			is_template: false,
+		},
+		{
+			...baseTask(),
+			id: "template",
+			title: "Template",
+			estimated_minutes: null,
+			context: "",
+			is_template: true,
+		},
+	];
+
+	it("filters by duration_min", () => {
+		const result = applyListTaskFilters(makeTasks(), { duration_min: 25 });
+		expect(result.map((t) => t.id)).toContain("medium");
+		expect(result.map((t) => t.id)).toContain("long");
+		expect(result.map((t) => t.id)).not.toContain("short");
+	});
+
+	it("filters by duration_max", () => {
+		const result = applyListTaskFilters(makeTasks(), { duration_max: 30 });
+		expect(result.map((t) => t.id)).toContain("short");
+		expect(result.map((t) => t.id)).toContain("medium");
+		expect(result.map((t) => t.id)).not.toContain("long");
+	});
+
+	it("filters by context", () => {
+		const result = applyListTaskFilters(makeTasks(), { context: "@home" });
+		expect(result.every((t) => t.context === "@home")).toBe(true);
+	});
+
+	it("excludes templates by default", () => {
+		const result = applyListTaskFilters(makeTasks(), {});
+		expect(result.map((t) => t.id)).not.toContain("template");
+	});
+
+	it("includes templates when include_templates is true", () => {
+		const result = applyListTaskFilters(makeTasks(), { include_templates: true });
+		expect(result.map((t) => t.id)).toContain("template");
+	});
+});
+
+describe("buildInstanceFromTemplate", () => {
+	it("creates instance with correct fields from template", () => {
+		const template: Task = {
+			...baseTask(),
+			id: "weekly-prep",
+			title: "Weekly Prep",
+			is_template: true,
+			subtasks: [
+				{ text: "Buy groceries", done: true },
+				{ text: "Meal plan", done: false },
+			],
+			related: ["other-task"],
+		};
+
+		const instance = buildInstanceFromTemplate(template);
+
+		expect(instance.title).toBe("Weekly Prep");
+		expect(instance.is_template).toBe(false);
+		expect(instance.from_template).toBe("weekly-prep");
+		expect(instance.status).toBe("backlog");
+		expect(instance.id).not.toBe("weekly-prep");
+		expect(instance.subtasks.every((s) => s.done === false)).toBe(true);
+		expect(instance.subtasks.length).toBe(2);
+		expect(instance.related).toEqual(["other-task"]);
+		expect(instance.completed_at).toBeNull();
+		expect(instance.actual_minutes).toBeNull();
+		expect(instance.nudge_count).toBe(0);
+		expect(instance.blocked_by).toEqual([]);
+		expect(instance.recurrence).toBeNull();
+		expect(instance.due).toBeNull();
+		expect(instance.defer_until).toBeNull();
+	});
+
+	it("applies overrides", () => {
+		const template: Task = {
+			...baseTask(),
+			id: "weekly-prep",
+			title: "Weekly Prep",
+			is_template: true,
+		};
+
+		const instance = buildInstanceFromTemplate(template, {
+			title: "Custom Title",
+			due: "2026-03-01",
+			status: "active",
+			projects: ["new-project"],
+		});
+
+		expect(instance.title).toBe("Custom Title");
+		expect(instance.due).toBe("2026-03-01");
+		expect(instance.status).toBe("active");
+		expect(instance.projects).toEqual(["new-project"]);
+	});
+});
+
+describe("instantiateTemplate via repository", () => {
+	it("instantiates a template and writes it to disk", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-template-"));
+		try {
+			const template: Task = {
+				...baseTask(),
+				id: "weekly-prep",
+				title: "Weekly Prep",
+				is_template: true,
+				recurrence: null,
+			};
+			await writeTaskFiles(dataDir, [template]);
+
+			const instance = await runRepository(dataDir, (repository) =>
+				repository.instantiateTemplate("weekly-prep"),
+			);
+			expect(instance.from_template).toBe("weekly-prep");
+			expect(instance.is_template).toBe(false);
+			expect(instance.status).toBe("backlog");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("fails on non-template", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-template-fail-"));
+		try {
+			await writeTaskFiles(dataDir, [baseTask()]);
+
+			const result = await runRepositoryExit(dataDir, (repository) =>
+				repository.instantiateTemplate("revive-unzen"),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("getRelated", () => {
+	it("returns bidirectionally related tasks", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-related-"));
+		try {
+			const task1: Task = {
+				...baseTask(),
+				id: "task-1",
+				title: "Task 1",
+				related: ["task-2"],
+				recurrence: null,
+			};
+			const task2: Task = {
+				...baseTask(),
+				id: "task-2",
+				title: "Task 2",
+				related: [],
+				recurrence: null,
+			};
+			const task3: Task = {
+				...baseTask(),
+				id: "task-3",
+				title: "Task 3",
+				related: ["task-1"],
+				recurrence: null,
+			};
+			await writeTaskFiles(dataDir, [task1, task2, task3]);
+
+			const related = await runRepository(dataDir, (repository) =>
+				repository.getRelated("task-1"),
+			);
+			const ids = related.map((t) => t.id).sort();
+			expect(ids).toEqual(["task-2", "task-3"]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("listContexts via repository", () => {
+	it("returns sorted unique non-empty contexts", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-contexts-"));
+		try {
+			await writeTaskFiles(dataDir, [
+				{ ...baseTask(), id: "t1", title: "T1", context: "@home", recurrence: null },
+				{ ...baseTask(), id: "t2", title: "T2", context: "@work", recurrence: null },
+				{ ...baseTask(), id: "t3", title: "T3", context: "@home", recurrence: null },
+				{ ...baseTask(), id: "t4", title: "T4", context: "", recurrence: null },
+			]);
+			const contexts = await runRepository(dataDir, (r) => r.listContexts());
+			expect(contexts).toEqual(["@home", "@work"]);
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}

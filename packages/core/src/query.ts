@@ -5,11 +5,10 @@ import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 import YAML from "yaml";
 import {
-	TaskArea as TaskAreaSchema,
 	TaskEnergy as TaskEnergySchema,
 	TaskStatus as TaskStatusSchema,
 	type Task,
-	type TaskEnergy,
+	type Project,
 } from "./schema.js";
 
 const addDays = (date: string, days: number): string => {
@@ -95,7 +94,7 @@ export const isDeferred =
 		task.defer_until !== null && task.defer_until > today;
 
 export const hasEnergy =
-	(level: TaskEnergy) =>
+	(level: string) =>
 	(task: Task): boolean =>
 		task.energy === level;
 
@@ -107,7 +106,22 @@ export const hasTag =
 export const hasProject =
 	(project: string) =>
 	(task: Task): boolean =>
-		task.project === project;
+		task.projects.includes(project);
+
+export const hasDurationMin =
+	(min: number) =>
+	(task: Task): boolean =>
+		task.estimated_minutes !== null && task.estimated_minutes >= min;
+
+export const hasDurationMax =
+	(max: number) =>
+	(task: Task): boolean =>
+		task.estimated_minutes !== null && task.estimated_minutes <= max;
+
+export const hasContext =
+	(context: string) =>
+	(task: Task): boolean =>
+		task.context === context;
 
 export const isStalerThan =
 	(days: number, today: string) =>
@@ -139,10 +153,9 @@ export const wasCompletedBetween =
 		return completed >= start && completed <= end;
 	};
 
-const energyRank: Record<TaskEnergy, number> = {
-	low: 0,
-	medium: 1,
-	high: 2,
+const energyRank = (e: string): number => {
+	const ranks: Record<string, number> = { low: 0, medium: 1, high: 2 };
+	return ranks[e] ?? -1;
 };
 
 export const byDueAsc = (a: Task, b: Task): number => {
@@ -162,7 +175,7 @@ export const byDueAsc = (a: Task, b: Task): number => {
 };
 
 export const byEnergyAsc = (a: Task, b: Task): number =>
-	energyRank[a.energy] - energyRank[b.energy];
+	energyRank(a.energy) - energyRank(b.energy);
 
 export const byCreatedAsc = (a: Task, b: Task): number =>
 	a.created.localeCompare(b.created);
@@ -235,7 +248,7 @@ export const resolveRelativeDate = (
 
 export const PerspectiveFilters = Schema.Struct({
 	status: Schema.optionalWith(TaskStatusSchema, { exact: true }),
-	area: Schema.optionalWith(TaskAreaSchema, { exact: true }),
+	area: Schema.optionalWith(Schema.String, { exact: true }),
 	project: Schema.optionalWith(Schema.String, { exact: true }),
 	tags: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
 	due_before: Schema.optionalWith(Schema.String, { exact: true }),
@@ -244,6 +257,10 @@ export const PerspectiveFilters = Schema.Struct({
 	energy: Schema.optionalWith(TaskEnergySchema, { exact: true }),
 	stale_days: Schema.optionalWith(Schema.Number, { exact: true }),
 	completed_on: Schema.optionalWith(Schema.String, { exact: true }),
+	duration_min: Schema.optionalWith(Schema.Number, { exact: true }),
+	duration_max: Schema.optionalWith(Schema.Number, { exact: true }),
+	context: Schema.optionalWith(Schema.String, { exact: true }),
+	include_templates: Schema.optionalWith(Schema.Boolean, { exact: true }),
 });
 export type PerspectiveFilters = Schema.Schema.Type<typeof PerspectiveFilters>;
 
@@ -328,8 +345,27 @@ export const applyPerspectiveToTasks = (
 		perspective.filters.completed_on !== undefined
 			? wasCompletedOn(perspective.filters.completed_on)
 			: null;
+	const durationMinPredicate =
+		perspective.filters.duration_min !== undefined
+			? hasDurationMin(perspective.filters.duration_min)
+			: null;
+	const durationMaxPredicate =
+		perspective.filters.duration_max !== undefined
+			? hasDurationMax(perspective.filters.duration_max)
+			: null;
+	const contextPredicate =
+		perspective.filters.context !== undefined
+			? hasContext(perspective.filters.context)
+			: null;
 
 	const filtered = taskList.filter((task) => {
+		if (
+			perspective.filters.include_templates !== true &&
+			task.is_template === true
+		) {
+			return false;
+		}
+
 		if (
 			perspective.filters.status !== undefined &&
 			task.status !== perspective.filters.status
@@ -346,7 +382,7 @@ export const applyPerspectiveToTasks = (
 
 		if (
 			perspective.filters.project !== undefined &&
-			task.project !== perspective.filters.project
+			!task.projects.includes(perspective.filters.project)
 		) {
 			return false;
 		}
@@ -389,6 +425,18 @@ export const applyPerspectiveToTasks = (
 		}
 
 		if (completedOnPredicate !== null && !completedOnPredicate(task)) {
+			return false;
+		}
+
+		if (durationMinPredicate !== null && !durationMinPredicate(task)) {
+			return false;
+		}
+
+		if (durationMaxPredicate !== null && !durationMaxPredicate(task)) {
+			return false;
+		}
+
+		if (contextPredicate !== null && !contextPredicate(task)) {
 			return false;
 		}
 
@@ -460,3 +508,29 @@ export const loadPerspectiveConfig = (
 		catch: (error) =>
 			`Perspective config loader failed: ${toErrorMessage(error)}`,
 	});
+
+export const listAreas = (
+	tasks: ReadonlyArray<Task>,
+	projects: ReadonlyArray<Project>,
+): Array<string> => {
+	const areas = new Set<string>();
+	for (const task of tasks) {
+		areas.add(task.area);
+	}
+	for (const project of projects) {
+		areas.add(project.area);
+	}
+	return Array.from(areas).sort();
+};
+
+export const listContexts = (
+	tasks: ReadonlyArray<Task>,
+): Array<string> => {
+	const contexts = new Set<string>();
+	for (const task of tasks) {
+		if (task.context.length > 0) {
+			contexts.add(task.context);
+		}
+	}
+	return Array.from(contexts).sort();
+};

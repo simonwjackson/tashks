@@ -261,6 +261,12 @@ export const buildNextClockRecurrenceTask = (
 	string
 > =>
 	Effect.gen(function* () {
+		if (existingTask.is_template) {
+			return yield* Effect.fail(
+				`TaskRepository failed to generate next recurrence for ${existingTask.id}: task is a template (use instantiation instead)`,
+			);
+		}
+
 		const recurrence = existingTask.recurrence;
 		if (recurrence === null) {
 			return yield* Effect.fail(

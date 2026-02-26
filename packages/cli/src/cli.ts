@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import * as Command from "@effect/cli/Command";
 import * as Options from "@effect/cli/Options";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import {
 	TaskRepository,
 	TaskRepositoryLive,
+	promoteSubtask,
 	type ListTasksFilters,
 	type ListProjectsFilters,
 	type TaskRepositoryService,
@@ -17,6 +18,8 @@ import type {
 import { ProseqlRepositoryLive } from "@tashks/core/proseql-repository";
 import {
 	applyPerspectiveToTasks,
+	listAreas,
+	listContexts,
 	loadPerspectiveConfig,
 } from "@tashks/core/query";
 import * as Effect from "effect/Effect";
@@ -45,6 +48,9 @@ export interface ListTasksCliOptionsInput {
 	readonly dueAfter: Option.Option<string>;
 	readonly unblockedOnly: boolean;
 	readonly date: Option.Option<string>;
+	readonly durationMin: Option.Option<number>;
+	readonly durationMax: Option.Option<number>;
+	readonly context: Option.Option<string>;
 }
 
 export interface ListWorkLogCliOptionsInput {
@@ -66,8 +72,8 @@ type WorkLogPatchInput = Parameters<
 export interface CreateTaskCliOptionsInput {
 	readonly title: string;
 	readonly status: Option.Option<NonNullable<TaskCreateInput["status"]>>;
-	readonly area: Option.Option<NonNullable<TaskCreateInput["area"]>>;
-	readonly project: Option.Option<string>;
+	readonly area: Option.Option<string>;
+	readonly project: ReadonlyArray<string>;
 	readonly tags: Option.Option<string>;
 	readonly due: Option.Option<string>;
 	readonly deferUntil: Option.Option<string>;
@@ -81,13 +87,15 @@ export interface CreateTaskCliOptionsInput {
 	readonly recurrenceStrategy: Option.Option<
 		NonNullable<TaskCreateInput["recurrence_strategy"]>
 	>;
+	readonly duration: Option.Option<number>;
+	readonly related: Option.Option<string>;
 }
 
 export interface UpdateTaskCliOptionsInput {
 	readonly title: Option.Option<string>;
 	readonly status: Option.Option<NonNullable<TaskPatchInput["status"]>>;
-	readonly area: Option.Option<NonNullable<TaskPatchInput["area"]>>;
-	readonly project: Option.Option<string>;
+	readonly area: Option.Option<string>;
+	readonly project: ReadonlyArray<string>;
 	readonly tags: Option.Option<string>;
 	readonly due: Option.Option<string>;
 	readonly deferUntil: Option.Option<string>;
@@ -101,6 +109,8 @@ export interface UpdateTaskCliOptionsInput {
 	readonly recurrenceStrategy: Option.Option<
 		NonNullable<TaskPatchInput["recurrence_strategy"]>
 	>;
+	readonly duration: Option.Option<number>;
+	readonly related: Option.Option<string>;
 }
 
 export interface CreateWorkLogCliOptionsInput {
@@ -251,6 +261,45 @@ export type ProjectSummaryExecute<R, E> = (
 	filters: ListProjectsFilters,
 ) => Effect.Effect<void, E, R>;
 
+export type PromoteExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+	index: number,
+) => Effect.Effect<void, E, R>;
+
+export type AreasExecute<R, E> = (
+	options: GlobalCliOptions,
+) => Effect.Effect<void, E, R>;
+
+export type ContextsExecute<R, E> = (
+	options: GlobalCliOptions,
+) => Effect.Effect<void, E, R>;
+
+export type TemplateExecute<R, E> = (
+	options: GlobalCliOptions,
+) => Effect.Effect<void, E, R>;
+
+export type TemplateListExecute<R, E> = (
+	options: GlobalCliOptions,
+) => Effect.Effect<void, E, R>;
+
+export type TemplateCreateExecute<R, E> = (
+	options: GlobalCliOptions,
+	input: TaskCreateInput,
+) => Effect.Effect<void, E, R>;
+
+export type TemplateInstantiateExecute<R, E> = (
+	options: GlobalCliOptions,
+	templateId: string,
+	overrides: {
+		readonly title?: string;
+		readonly due?: string;
+		readonly defer_until?: string;
+		readonly status?: string;
+		readonly projects?: ReadonlyArray<string>;
+	},
+) => Effect.Effect<void, E, R>;
+
 export const defaultDataDir = (
 	env: NodeJS.ProcessEnv = process.env,
 ): string => {
@@ -322,6 +371,9 @@ export const resolveListTaskFilters = (
 	const dueBefore = toUndefined(options.dueBefore);
 	const dueAfter = toUndefined(options.dueAfter);
 	const date = toUndefined(options.date);
+	const durationMin = toUndefined(options.durationMin);
+	const durationMax = toUndefined(options.durationMax);
+	const context = toUndefined(options.context);
 
 	return {
 		...(status !== undefined ? { status } : {}),
@@ -332,6 +384,9 @@ export const resolveListTaskFilters = (
 		...(dueAfter !== undefined ? { due_after: dueAfter } : {}),
 		...(options.unblockedOnly ? { unblocked_only: true } : {}),
 		...(date !== undefined ? { date } : {}),
+		...(durationMin !== undefined ? { duration_min: durationMin } : {}),
+		...(durationMax !== undefined ? { duration_max: durationMax } : {}),
+		...(context !== undefined ? { context } : {}),
 	};
 };
 
@@ -340,7 +395,7 @@ export const resolveCreateTaskInput = (
 ): TaskCreateInput => {
 	const status = toUndefined(options.status);
 	const area = toUndefined(options.area);
-	const project = toUndefined(options.project);
+	const projects = options.project.length > 0 ? [...options.project] : undefined;
 	const tags = parseTagFilter(options.tags);
 	const due = toUndefined(options.due);
 	const deferUntil = toUndefined(options.deferUntil);
@@ -350,12 +405,14 @@ export const resolveCreateTaskInput = (
 	const recurrence = toUndefined(options.recurrence);
 	const recurrenceTrigger = toUndefined(options.recurrenceTrigger);
 	const recurrenceStrategy = toUndefined(options.recurrenceStrategy);
+	const duration = toUndefined(options.duration);
+	const related = parseTagFilter(options.related);
 
 	return {
 		title: options.title,
 		...(status !== undefined ? { status } : {}),
 		...(area !== undefined ? { area } : {}),
-		...(project !== undefined ? { project } : {}),
+		...(projects !== undefined ? { projects } : {}),
 		...(tags !== undefined ? { tags } : {}),
 		...(due !== undefined ? { due } : {}),
 		...(deferUntil !== undefined ? { defer_until: deferUntil } : {}),
@@ -369,6 +426,8 @@ export const resolveCreateTaskInput = (
 		...(recurrenceStrategy !== undefined
 			? { recurrence_strategy: recurrenceStrategy }
 			: {}),
+		...(duration !== undefined ? { estimated_minutes: duration } : {}),
+		...(related !== undefined ? { related } : {}),
 	};
 };
 
@@ -378,7 +437,7 @@ export const resolveUpdateTaskPatch = (
 	const title = toUndefined(options.title);
 	const status = toUndefined(options.status);
 	const area = toUndefined(options.area);
-	const project = toUndefined(options.project);
+	const projects = options.project.length > 0 ? [...options.project] : undefined;
 	const tags = parseTagFilter(options.tags);
 	const due = toUndefined(options.due);
 	const deferUntil = toUndefined(options.deferUntil);
@@ -388,12 +447,14 @@ export const resolveUpdateTaskPatch = (
 	const recurrence = toUndefined(options.recurrence);
 	const recurrenceTrigger = toUndefined(options.recurrenceTrigger);
 	const recurrenceStrategy = toUndefined(options.recurrenceStrategy);
+	const duration = toUndefined(options.duration);
+	const related = parseTagFilter(options.related);
 
 	return {
 		...(title !== undefined ? { title } : {}),
 		...(status !== undefined ? { status } : {}),
 		...(area !== undefined ? { area } : {}),
-		...(project !== undefined ? { project } : {}),
+		...(projects !== undefined ? { projects } : {}),
 		...(tags !== undefined ? { tags } : {}),
 		...(due !== undefined ? { due } : {}),
 		...(deferUntil !== undefined ? { defer_until: deferUntil } : {}),
@@ -407,6 +468,8 @@ export const resolveUpdateTaskPatch = (
 		...(recurrenceStrategy !== undefined
 			? { recurrence_strategy: recurrenceStrategy }
 			: {}),
+		...(duration !== undefined ? { estimated_minutes: duration } : {}),
+		...(related !== undefined ? { related } : {}),
 	};
 };
 
@@ -512,53 +575,6 @@ export const prettyOption = Options.boolean("pretty").pipe(
 	Options.withDescription("Pretty-print JSON output"),
 );
 
-const taskStatusChoices = [
-	"active",
-	"backlog",
-	"blocked",
-	"done",
-	"dropped",
-	"on-hold",
-] as const satisfies ReadonlyArray<NonNullable<ListTasksFilters["status"]>>;
-
-const taskAreaChoices = [
-	"health",
-	"infrastructure",
-	"work",
-	"personal",
-	"blog",
-	"code",
-	"home",
-	"side-projects",
-] as const satisfies ReadonlyArray<NonNullable<ListTasksFilters["area"]>>;
-
-const taskUrgencyChoices = [
-	"low",
-	"medium",
-	"high",
-	"urgent",
-	"critical",
-] as const satisfies ReadonlyArray<NonNullable<TaskCreateInput["urgency"]>>;
-
-const taskEnergyChoices = [
-	"low",
-	"medium",
-	"high",
-] as const satisfies ReadonlyArray<NonNullable<TaskCreateInput["energy"]>>;
-
-const recurrenceTriggerChoices = [
-	"clock",
-	"completion",
-] as const satisfies ReadonlyArray<
-	NonNullable<TaskCreateInput["recurrence_trigger"]>
->;
-
-const recurrenceStrategyChoices = [
-	"replace",
-	"accumulate",
-] as const satisfies ReadonlyArray<
-	NonNullable<TaskCreateInput["recurrence_strategy"]>
->;
 
 export const makeListCommand = <R, E>(execute: ListTasksExecute<R, E>) =>
 	Command.make(
@@ -568,11 +584,11 @@ export const makeListCommand = <R, E>(execute: ListTasksExecute<R, E>) =>
 			tasksFile: tasksFileOption,
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
-			status: Options.choice("status", taskStatusChoices).pipe(
+			status: Options.text("status").pipe(
 				Options.withDescription("Filter by task status"),
 				Options.optional,
 			),
-			area: Options.choice("area", taskAreaChoices).pipe(
+			area: Options.text("area").pipe(
 				Options.withDescription("Filter by task area"),
 				Options.optional,
 			),
@@ -607,6 +623,22 @@ export const makeListCommand = <R, E>(execute: ListTasksExecute<R, E>) =>
 				Options.withDescription(
 					"Reference date for defer-until filtering (YYYY-MM-DD)",
 				),
+				Options.optional,
+			),
+			durationMin: Options.integer("duration-min").pipe(
+				Options.withDescription(
+					"Include tasks with estimated_minutes >= this value",
+				),
+				Options.optional,
+			),
+			durationMax: Options.integer("duration-max").pipe(
+				Options.withDescription(
+					"Include tasks with estimated_minutes <= this value",
+				),
+				Options.optional,
+			),
+			context: Options.text("context").pipe(
+				Options.withDescription("Filter by context"),
 				Options.optional,
 			),
 		},
@@ -654,17 +686,17 @@ export const makeCreateCommand = <R, E>(execute: CreateTaskExecute<R, E>) =>
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			title: Options.text("title").pipe(Options.withDescription("Task title")),
-			status: Options.choice("status", taskStatusChoices).pipe(
+			status: Options.text("status").pipe(
 				Options.withDescription("Initial task status"),
 				Options.optional,
 			),
-			area: Options.choice("area", taskAreaChoices).pipe(
+			area: Options.text("area").pipe(
 				Options.withDescription("Task area"),
 				Options.optional,
 			),
 			project: Options.text("project").pipe(
-				Options.withDescription("Project label"),
-				Options.optional,
+				Options.withDescription("Project label (repeatable)"),
+				Options.repeated,
 			),
 			tags: Options.text("tags").pipe(
 				Options.withDescription("Comma-separated tags"),
@@ -678,11 +710,11 @@ export const makeCreateCommand = <R, E>(execute: CreateTaskExecute<R, E>) =>
 				Options.withDescription("Hide until date (YYYY-MM-DD)"),
 				Options.optional,
 			),
-			urgency: Options.choice("urgency", taskUrgencyChoices).pipe(
+			urgency: Options.text("urgency").pipe(
 				Options.withDescription("Urgency level"),
 				Options.optional,
 			),
-			energy: Options.choice("energy", taskEnergyChoices).pipe(
+			energy: Options.text("energy").pipe(
 				Options.withDescription("Energy requirement"),
 				Options.optional,
 			),
@@ -694,20 +726,22 @@ export const makeCreateCommand = <R, E>(execute: CreateTaskExecute<R, E>) =>
 				Options.withDescription("iCal RRULE string"),
 				Options.optional,
 			),
-			recurrenceTrigger: Options.choice(
-				"recurrence-trigger",
-				recurrenceTriggerChoices,
-			).pipe(
+			recurrenceTrigger: Options.text("recurrence-trigger").pipe(
 				Options.withDescription("Recurrence trigger mode"),
 				Options.optional,
 			),
-			recurrenceStrategy: Options.choice(
-				"recurrence-strategy",
-				recurrenceStrategyChoices,
-			).pipe(
+			recurrenceStrategy: Options.text("recurrence-strategy").pipe(
 				Options.withDescription(
 					"Clock recurrence strategy for unfinished tasks",
 				),
+				Options.optional,
+			),
+			duration: Options.integer("duration").pipe(
+				Options.withDescription("Estimated duration in minutes"),
+				Options.optional,
+			),
+			related: Options.text("related").pipe(
+				Options.withDescription("Comma-separated related task IDs"),
 				Options.optional,
 			),
 		},
@@ -737,17 +771,17 @@ export const makeUpdateCommand = <R, E>(execute: UpdateTaskExecute<R, E>) =>
 				Options.withDescription("Updated task title"),
 				Options.optional,
 			),
-			status: Options.choice("status", taskStatusChoices).pipe(
+			status: Options.text("status").pipe(
 				Options.withDescription("Updated task status"),
 				Options.optional,
 			),
-			area: Options.choice("area", taskAreaChoices).pipe(
+			area: Options.text("area").pipe(
 				Options.withDescription("Updated task area"),
 				Options.optional,
 			),
 			project: Options.text("project").pipe(
-				Options.withDescription("Updated project label"),
-				Options.optional,
+				Options.withDescription("Updated project label (repeatable)"),
+				Options.repeated,
 			),
 			tags: Options.text("tags").pipe(
 				Options.withDescription("Updated comma-separated tags"),
@@ -761,11 +795,11 @@ export const makeUpdateCommand = <R, E>(execute: UpdateTaskExecute<R, E>) =>
 				Options.withDescription("Updated hidden-until date (YYYY-MM-DD)"),
 				Options.optional,
 			),
-			urgency: Options.choice("urgency", taskUrgencyChoices).pipe(
+			urgency: Options.text("urgency").pipe(
 				Options.withDescription("Updated urgency level"),
 				Options.optional,
 			),
-			energy: Options.choice("energy", taskEnergyChoices).pipe(
+			energy: Options.text("energy").pipe(
 				Options.withDescription("Updated energy requirement"),
 				Options.optional,
 			),
@@ -777,18 +811,20 @@ export const makeUpdateCommand = <R, E>(execute: UpdateTaskExecute<R, E>) =>
 				Options.withDescription("Updated iCal RRULE string"),
 				Options.optional,
 			),
-			recurrenceTrigger: Options.choice(
-				"recurrence-trigger",
-				recurrenceTriggerChoices,
-			).pipe(
+			recurrenceTrigger: Options.text("recurrence-trigger").pipe(
 				Options.withDescription("Updated recurrence trigger mode"),
 				Options.optional,
 			),
-			recurrenceStrategy: Options.choice(
-				"recurrence-strategy",
-				recurrenceStrategyChoices,
-			).pipe(
+			recurrenceStrategy: Options.text("recurrence-strategy").pipe(
 				Options.withDescription("Updated clock recurrence strategy"),
+				Options.optional,
+			),
+			duration: Options.integer("duration").pipe(
+				Options.withDescription("Updated estimated duration in minutes"),
+				Options.optional,
+			),
+			related: Options.text("related").pipe(
+				Options.withDescription("Updated comma-separated related task IDs"),
 				Options.optional,
 			),
 		},
@@ -1098,12 +1134,241 @@ export const makeMigrateCommand = <R, E>(
 		),
 	);
 
-const projectStatusChoices = [
-	"active",
-	"on-hold",
-	"done",
-	"dropped",
-] as const;
+export const makePromoteCommand = <R, E>(execute: PromoteExecute<R, E>) =>
+	Command.make(
+		"promote",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
+			index: Options.integer("index").pipe(
+				Options.withDescription("Subtask index (0-based)"),
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id, options.index);
+			}),
+	).pipe(Command.withDescription("Promote a subtask to a full task"));
+
+export const makeAreasCommand = <R, E>(execute: AreasExecute<R, E>) =>
+	Command.make(
+		"areas",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions);
+			}),
+	).pipe(Command.withDescription("List unique areas in use"));
+
+export const makeContextsCommand = <R, E>(execute: ContextsExecute<R, E>) =>
+	Command.make(
+		"contexts",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions);
+			}),
+	).pipe(Command.withDescription("List unique contexts in use"));
+
+export const makeTemplateListCommand = <R, E>(
+	execute: TemplateListExecute<R, E>,
+) =>
+	Command.make(
+		"list",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions);
+			}),
+	).pipe(Command.withDescription("List task templates"));
+
+export const makeTemplateCreateCommand = <R, E>(
+	execute: TemplateCreateExecute<R, E>,
+) =>
+	Command.make(
+		"create",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			title: Options.text("title").pipe(Options.withDescription("Template title")),
+			area: Options.text("area").pipe(
+				Options.withDescription("Template area"),
+				Options.optional,
+			),
+			project: Options.text("project").pipe(
+				Options.withDescription("Project label (repeatable)"),
+				Options.repeated,
+			),
+			tags: Options.text("tags").pipe(
+				Options.withDescription("Comma-separated tags"),
+				Options.optional,
+			),
+			urgency: Options.text("urgency").pipe(
+				Options.withDescription("Urgency level"),
+				Options.optional,
+			),
+			energy: Options.text("energy").pipe(
+				Options.withDescription("Energy requirement"),
+				Options.optional,
+			),
+			context: Options.text("context").pipe(
+				Options.withDescription("Free-form context notes"),
+				Options.optional,
+			),
+			duration: Options.integer("duration").pipe(
+				Options.withDescription("Estimated duration in minutes"),
+				Options.optional,
+			),
+			related: Options.text("related").pipe(
+				Options.withDescription("Comma-separated related task IDs"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				const input = resolveCreateTaskInput({
+					...options,
+					status: Option.none(),
+					due: Option.none(),
+					deferUntil: Option.none(),
+					recurrence: Option.none(),
+					recurrenceTrigger: Option.none(),
+					recurrenceStrategy: Option.none(),
+				});
+				yield* execute(globalOptions, { ...input, is_template: true });
+			}),
+	).pipe(Command.withDescription("Create a task template"));
+
+export const makeTemplateInstantiateCommand = <R, E>(
+	execute: TemplateInstantiateExecute<R, E>,
+) =>
+	Command.make(
+		"instantiate",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Template ID")),
+			title: Options.text("title").pipe(
+				Options.withDescription("Override title"),
+				Options.optional,
+			),
+			due: Options.text("due").pipe(
+				Options.withDescription("Override due date (YYYY-MM-DD)"),
+				Options.optional,
+			),
+			deferUntil: Options.text("defer-until").pipe(
+				Options.withDescription("Override defer date (YYYY-MM-DD)"),
+				Options.optional,
+			),
+			status: Options.text("status").pipe(
+				Options.withDescription("Override status"),
+				Options.optional,
+			),
+			project: Options.text("project").pipe(
+				Options.withDescription("Override project (repeatable)"),
+				Options.repeated,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				const overrides: {
+					title?: string;
+					due?: string;
+					defer_until?: string;
+					status?: string;
+					projects?: ReadonlyArray<string>;
+				} = {};
+				const title = toUndefined(options.title);
+				if (title !== undefined) overrides.title = title;
+				const due = toUndefined(options.due);
+				if (due !== undefined) overrides.due = due;
+				const deferUntil = toUndefined(options.deferUntil);
+				if (deferUntil !== undefined) overrides.defer_until = deferUntil;
+				const status = toUndefined(options.status);
+				if (status !== undefined) overrides.status = status;
+				if (options.project.length > 0)
+					overrides.projects = [...options.project];
+				yield* execute(globalOptions, options.id, overrides);
+			}),
+	).pipe(Command.withDescription("Create a task from a template"));
+
+export const makeTemplateCommand = <R, E>(
+	execute: TemplateExecute<R, E>,
+	executeList: TemplateListExecute<R, E>,
+	executeCreate: TemplateCreateExecute<R, E>,
+	executeInstantiate: TemplateInstantiateExecute<R, E>,
+) =>
+	Command.make(
+		"template",
+		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
+		({ dataDir, tasksFile, worklogFile, pretty }) =>
+			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
+	).pipe(
+		Command.withDescription("Manage task templates"),
+		Command.withSubcommands([
+			makeTemplateListCommand(executeList),
+			makeTemplateCreateCommand(executeCreate),
+			makeTemplateInstantiateCommand(executeInstantiate),
+		]),
+	);
 
 export const makeProjectListCommand = <R, E>(
 	execute: ListProjectsExecute<R, E>,
@@ -1115,11 +1380,11 @@ export const makeProjectListCommand = <R, E>(
 			tasksFile: tasksFileOption,
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
-			status: Options.choice("status", projectStatusChoices).pipe(
+			status: Options.text("status").pipe(
 				Options.withDescription("Filter by project status"),
 				Options.optional,
 			),
-			area: Options.choice("area", taskAreaChoices).pipe(
+			area: Options.text("area").pipe(
 				Options.withDescription("Filter by project area"),
 				Options.optional,
 			),
@@ -1172,11 +1437,11 @@ export const makeProjectCreateCommand = <R, E>(
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			title: Options.text("title").pipe(Options.withDescription("Project title")),
-			status: Options.choice("status", projectStatusChoices).pipe(
+			status: Options.text("status").pipe(
 				Options.withDescription("Initial project status"),
 				Options.optional,
 			),
-			area: Options.choice("area", taskAreaChoices).pipe(
+			area: Options.text("area").pipe(
 				Options.withDescription("Project area"),
 				Options.optional,
 			),
@@ -1217,11 +1482,11 @@ export const makeProjectUpdateCommand = <R, E>(
 				Options.withDescription("Updated project title"),
 				Options.optional,
 			),
-			status: Options.choice("status", projectStatusChoices).pipe(
+			status: Options.text("status").pipe(
 				Options.withDescription("Updated project status"),
 				Options.optional,
 			),
-			area: Options.choice("area", taskAreaChoices).pipe(
+			area: Options.text("area").pipe(
 				Options.withDescription("Updated project area"),
 				Options.optional,
 			),
@@ -1305,11 +1570,11 @@ export const makeProjectSummaryCommand = <R, E>(
 			tasksFile: tasksFileOption,
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
-			status: Options.choice("status", projectStatusChoices).pipe(
+			status: Options.text("status").pipe(
 				Options.withDescription("Filter by project status"),
 				Options.optional,
 			),
-			area: Options.choice("area", taskAreaChoices).pipe(
+			area: Options.text("area").pipe(
 				Options.withDescription("Filter by project area"),
 				Options.optional,
 			),
@@ -1403,6 +1668,13 @@ export const makeTasksCommand = <R, E>(
 	executeProjectDelete: DeleteProjectExecute<R, E>,
 	executeProjectTasks: ProjectTasksExecute<R, E>,
 	executeProjectSummary: ProjectSummaryExecute<R, E>,
+	executePromote: PromoteExecute<R, E>,
+	executeAreas: AreasExecute<R, E>,
+	executeContexts: ContextsExecute<R, E>,
+	executeTemplate: TemplateExecute<R, E>,
+	executeTemplateList: TemplateListExecute<R, E>,
+	executeTemplateCreate: TemplateCreateExecute<R, E>,
+	executeTemplateInstantiate: TemplateInstantiateExecute<R, E>,
 ) =>
 	Command.make(
 		"tasks",
@@ -1441,6 +1713,15 @@ export const makeTasksCommand = <R, E>(
 				executeProjectDelete,
 				executeProjectTasks,
 				executeProjectSummary,
+			),
+			makePromoteCommand(executePromote),
+			makeAreasCommand(executeAreas),
+			makeContextsCommand(executeContexts),
+			makeTemplateCommand(
+				executeTemplate,
+				executeTemplateList,
+				executeTemplateCreate,
+				executeTemplateInstantiate,
 			),
 		]),
 	);
@@ -1565,6 +1846,45 @@ const noopProjectSummaryExecute = (
 	_filters: ListProjectsFilters,
 ): Effect.Effect<void> => Effect.void;
 
+const noopPromoteExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+	_index: number,
+): Effect.Effect<void> => Effect.void;
+
+const noopAreasExecute = (
+	_options: GlobalCliOptions,
+): Effect.Effect<void> => Effect.void;
+
+const noopContextsExecute = (
+	_options: GlobalCliOptions,
+): Effect.Effect<void> => Effect.void;
+
+const noopTemplateExecute = (
+	_options: GlobalCliOptions,
+): Effect.Effect<void> => Effect.void;
+
+const noopTemplateListExecute = (
+	_options: GlobalCliOptions,
+): Effect.Effect<void> => Effect.void;
+
+const noopTemplateCreateExecute = (
+	_options: GlobalCliOptions,
+	_input: TaskCreateInput,
+): Effect.Effect<void> => Effect.void;
+
+const noopTemplateInstantiateExecute = (
+	_options: GlobalCliOptions,
+	_templateId: string,
+	_overrides: {
+		readonly title?: string;
+		readonly due?: string;
+		readonly defer_until?: string;
+		readonly status?: string;
+		readonly projects?: ReadonlyArray<string>;
+	},
+): Effect.Effect<void> => Effect.void;
+
 const defaultListExecute: ListTasksExecute<never, string> = (
 	options,
 	filters,
@@ -1596,15 +1916,15 @@ const defaultCreateExecute: CreateTaskExecute<never, string> = (
 		const repository = yield* TaskRepository;
 		const task = yield* repository.createTask(input);
 
-		if (task.project !== null) {
+		for (const projectId of task.projects) {
 			const projectExists = yield* Effect.catchAll(
-				Effect.map(repository.getProject(task.project), () => true),
+				Effect.map(repository.getProject(projectId), () => true),
 				() => Effect.succeed(false),
 			);
 			if (!projectExists) {
 				yield* Effect.sync(() => {
 					process.stderr.write(
-						`Warning: project "${task.project}" does not exist as a registered project\n`,
+						`Warning: project "${projectId}" does not exist as a registered project\n`,
 					);
 				});
 			}
@@ -1862,7 +2182,7 @@ const defaultProjectSummaryExecute: ProjectSummaryExecute<never, string> = (
 		const tasks = yield* repository.listTasks();
 
 		const summary = projects.map((project) => {
-			const projectTasks = tasks.filter((t) => t.project === project.id);
+			const projectTasks = tasks.filter((t) => t.projects.includes(project.id));
 			const statusCounts: Record<string, number> = {};
 			for (const t of projectTasks) {
 				statusCounts[t.status] = (statusCounts[t.status] ?? 0) + 1;
@@ -1879,11 +2199,10 @@ const defaultProjectSummaryExecute: ProjectSummaryExecute<never, string> = (
 
 		const unregisteredProjects = new Set<string>();
 		for (const task of tasks) {
-			if (
-				task.project !== null &&
-				!projects.some((p) => p.id === task.project)
-			) {
-				unregisteredProjects.add(task.project);
+			for (const projectId of task.projects) {
+				if (!projects.some((p) => p.id === projectId)) {
+					unregisteredProjects.add(projectId);
+				}
 			}
 		}
 
@@ -1943,6 +2262,82 @@ const defaultMigrateExecute: MigrateExecute<never, string> = (
 			);
 		});
 	});
+
+const defaultPromoteExecute: PromoteExecute<never, string> = (
+	options,
+	id,
+	index,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const newTask = yield* promoteSubtask(repository, id, index);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(newTask, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultAreasExecute: AreasExecute<never, string> = (options) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const tasks = yield* repository.listTasks();
+		const projects = yield* repository.listProjects();
+		const areas = listAreas(tasks, projects);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(areas, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultContextsExecute: ContextsExecute<never, string> = (options) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const tasks = yield* repository.listTasks();
+		const contexts = listContexts(tasks);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(contexts, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultTemplateListExecute: TemplateListExecute<never, string> = (
+	options,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const tasks = yield* repository.listTasks({ include_templates: true });
+		const templates = tasks.filter((t) => t.is_template === true);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(templates, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultTemplateCreateExecute: TemplateCreateExecute<never, string> = (
+	options,
+	input,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const task = yield* repository.createTask(input);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultTemplateInstantiateExecute: TemplateInstantiateExecute<
+	never,
+	string
+> = (options, templateId, overrides) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const task = yield* repository.instantiateTemplate(templateId, overrides);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
 export const makeCli = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
@@ -2040,6 +2435,16 @@ export const makeCli = <R, E>(
 		R,
 		E
 	> = noopProjectSummaryExecute as ProjectSummaryExecute<R, E>,
+	executePromote: PromoteExecute<R, E> = noopPromoteExecute as PromoteExecute<
+		R,
+		E
+	>,
+	executeAreas: AreasExecute<R, E> = noopAreasExecute as AreasExecute<R, E>,
+	executeContexts: ContextsExecute<R, E> = noopContextsExecute as ContextsExecute<R, E>,
+	executeTemplate: TemplateExecute<R, E> = noopTemplateExecute as TemplateExecute<R, E>,
+	executeTemplateList: TemplateListExecute<R, E> = noopTemplateListExecute as TemplateListExecute<R, E>,
+	executeTemplateCreate: TemplateCreateExecute<R, E> = noopTemplateCreateExecute as TemplateCreateExecute<R, E>,
+	executeTemplateInstantiate: TemplateInstantiateExecute<R, E> = noopTemplateInstantiateExecute as TemplateInstantiateExecute<R, E>,
 ) =>
 	Command.run(
 		makeTasksCommand(
@@ -2068,6 +2473,13 @@ export const makeCli = <R, E>(
 			executeProjectDelete,
 			executeProjectTasks,
 			executeProjectSummary,
+			executePromote,
+			executeAreas,
+			executeContexts,
+			executeTemplate,
+			executeTemplateList,
+			executeTemplateCreate,
+			executeTemplateInstantiate,
 		),
 		{
 			name: "Tashks CLI",
@@ -2101,6 +2513,13 @@ export const cli = makeCli(
 	defaultProjectDeleteExecute,
 	defaultProjectTasksExecute,
 	defaultProjectSummaryExecute,
+	defaultPromoteExecute,
+	defaultAreasExecute,
+	defaultContextsExecute,
+	noopTemplateExecute,
+	defaultTemplateListExecute,
+	defaultTemplateCreateExecute,
+	defaultTemplateInstantiateExecute,
 );
 
 export const runCli = (argv: ReadonlyArray<string> = process.argv) => cli(argv);
