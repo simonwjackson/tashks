@@ -548,6 +548,10 @@ export const applyListTaskFilters = (
 ): Array<Task> => {
 	const dueBeforePredicate =
 		filters.due_before !== undefined ? isDueBefore(filters.due_before) : null;
+	const stalePredicate =
+		filters.stale_days !== undefined
+			? isStalerThan(filters.stale_days, todayIso())
+			: null;
 
 	return tasks
 		.filter((task) => {
@@ -622,6 +626,10 @@ export const applyListTaskFilters = (
 				return false;
 			}
 
+			if (stalePredicate !== null && !stalePredicate(task)) {
+				return false;
+			}
+
 			return true;
 		})
 		.sort(byUpdatedDescThenTitle);
@@ -640,6 +648,7 @@ export interface ListTasksFilters {
 	readonly duration_max?: number;
 	readonly context?: string;
 	readonly include_templates?: boolean;
+	readonly stale_days?: number;
 }
 
 export interface ListProjectsFilters {
@@ -729,6 +738,7 @@ export interface TaskRepositoryService {
 	) => Effect.Effect<Project, string>;
 	readonly deleteProject: (id: string) => Effect.Effect<DeleteResult, string>;
 	readonly importProject: (project: Project) => Effect.Effect<Project, string>;
+	readonly getDailyHighlight: () => Effect.Effect<Task | null, string>;
 	readonly listContexts: () => Effect.Effect<Array<string>, string>;
 	readonly getRelated: (id: string) => Effect.Effect<Array<Task>, string>;
 	readonly instantiateTemplate: (
@@ -967,6 +977,49 @@ const makeTaskRepositoryLive = (
 				const existing = yield* readTaskByIdFromDisk(dataDir, id);
 				yield* writeDailyHighlightToDisk(dataDir, id);
 				return existing.task;
+			}),
+		getDailyHighlight: () =>
+			Effect.gen(function* () {
+				const source = yield* Effect.tryPromise({
+					try: () =>
+						readFile(dailyHighlightFilePath(dataDir), "utf8").catch(
+							(error: unknown) => {
+								if (
+									error !== null &&
+									typeof error === "object" &&
+									"code" in error &&
+									error.code === "ENOENT"
+								) {
+									return null;
+								}
+								throw error;
+							},
+						),
+					catch: (error) =>
+						`TaskRepository failed to read daily highlight: ${toErrorMessage(error)}`,
+				});
+
+				if (source === null || source.trim().length === 0) {
+					return null;
+				}
+
+				const parsed = YAML.parse(source);
+				if (
+					parsed === null ||
+					typeof parsed !== "object" ||
+					typeof parsed.id !== "string"
+				) {
+					return null;
+				}
+
+				const result = yield* Effect.catchAll(
+					Effect.map(
+						readTaskByIdFromDisk(dataDir, parsed.id),
+						(r) => r.task as Task | null,
+					),
+					() => Effect.succeed(null as Task | null),
+				);
+				return result;
 			}),
 		listStale: (days) =>
 			Effect.map(readTasksFromDisk(dataDir), (tasks) => {

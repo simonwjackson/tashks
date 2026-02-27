@@ -1,5 +1,5 @@
 import { dirname, join } from "node:path";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -298,6 +298,48 @@ const makeProseqlRepository = (
 			return a.id.localeCompare(b.id);
 		};
 
+		const readDailyHighlight = (): Effect.Effect<Task | null, string> =>
+			Effect.gen(function* () {
+				const highlightPath = join(dataDir, "daily-highlight.yaml");
+				const source = yield* Effect.tryPromise({
+					try: () =>
+						readFile(highlightPath, "utf8").catch(
+							(error: unknown) => {
+								if (
+									error !== null &&
+									typeof error === "object" &&
+									"code" in error &&
+									error.code === "ENOENT"
+								) {
+									return null;
+								}
+								throw error;
+							},
+						),
+					catch: (error) =>
+						`ProseqlRepository failed to read daily highlight: ${toErrorMessage(error)}`,
+				});
+
+				if (source === null || source.trim().length === 0) {
+					return null;
+				}
+
+				const parsed = YAML.parse(source);
+				if (
+					parsed === null ||
+					typeof parsed !== "object" ||
+					typeof parsed.id !== "string"
+				) {
+					return null;
+				}
+
+				const result = yield* Effect.catchAll(
+					Effect.map(findTask(parsed.id), (t) => t as Task | null),
+					() => Effect.succeed(null as Task | null),
+				);
+				return result;
+			});
+
 		const service: TaskRepositoryService = {
 			listTasks: (filters) =>
 				Effect.map(collectTasks(), (tasks) =>
@@ -432,6 +474,8 @@ const makeProseqlRepository = (
 					yield* writeDailyHighlight(id);
 					return existing;
 				}),
+
+			getDailyHighlight: () => readDailyHighlight(),
 
 			listStale: (days) =>
 				Effect.map(collectTasks(), (tasks) => {

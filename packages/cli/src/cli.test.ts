@@ -134,6 +134,7 @@ describe("list filter resolution", () => {
 			durationMin: Option.some(15),
 			durationMax: Option.some(60),
 			context: Option.some("@home"),
+			staleDays: Option.some(7),
 		});
 
 		expect(filters).toEqual({
@@ -148,6 +149,7 @@ describe("list filter resolution", () => {
 			duration_min: 15,
 			duration_max: 60,
 			context: "@home",
+			stale_days: 7,
 		});
 	});
 
@@ -164,6 +166,7 @@ describe("list filter resolution", () => {
 			durationMin: Option.none(),
 			durationMax: Option.none(),
 			context: Option.none(),
+			staleDays: Option.none(),
 		});
 
 		expect(filters).toEqual({});
@@ -188,6 +191,8 @@ describe("create input resolution", () => {
 			recurrenceStrategy: Option.some("accumulate"),
 			duration: Option.some(120),
 			related: Option.some("task-1,task-2"),
+			blockedBy: Option.some("blocker-1,blocker-2"),
+			subtasks: Option.some("Buy milk,Call vet"),
 		});
 
 		expect(input).toEqual({
@@ -206,6 +211,11 @@ describe("create input resolution", () => {
 			recurrence_strategy: "accumulate",
 			estimated_minutes: 120,
 			related: ["task-1", "task-2"],
+			blocked_by: ["blocker-1", "blocker-2"],
+			subtasks: [
+				{ text: "Buy milk", done: false },
+				{ text: "Call vet", done: false },
+			],
 		});
 	});
 
@@ -226,6 +236,8 @@ describe("create input resolution", () => {
 			recurrenceStrategy: Option.none(),
 			duration: Option.none(),
 			related: Option.none(),
+			blockedBy: Option.none(),
+			subtasks: Option.none(),
 		});
 
 		expect(input).toEqual({
@@ -252,6 +264,7 @@ describe("update patch resolution", () => {
 			recurrenceStrategy: Option.some("accumulate"),
 			duration: Option.some(90),
 			related: Option.some("task-a,task-b"),
+			blockedBy: Option.some("dep-1,dep-2"),
 		});
 
 		expect(patch).toEqual({
@@ -270,6 +283,7 @@ describe("update patch resolution", () => {
 			recurrence_strategy: "accumulate",
 			estimated_minutes: 90,
 			related: ["task-a", "task-b"],
+			blocked_by: ["dep-1", "dep-2"],
 		});
 	});
 
@@ -290,6 +304,7 @@ describe("update patch resolution", () => {
 			recurrenceStrategy: Option.none(),
 			duration: Option.none(),
 			related: Option.none(),
+			blockedBy: Option.none(),
 		});
 
 		expect(patch).toEqual({});

@@ -18,6 +18,10 @@ import type {
 import { ProseqlRepositoryLive } from "@tashks/core/proseql-repository";
 import {
 	applyPerspectiveToTasks,
+	buildDependencyChain,
+	byUrgencyDesc,
+	isDeferred,
+	isUnblocked,
 	listAreas,
 	listContexts,
 	loadPerspectiveConfig,
@@ -51,6 +55,7 @@ export interface ListTasksCliOptionsInput {
 	readonly durationMin: Option.Option<number>;
 	readonly durationMax: Option.Option<number>;
 	readonly context: Option.Option<string>;
+	readonly staleDays: Option.Option<number>;
 }
 
 export interface ListWorkLogCliOptionsInput {
@@ -89,6 +94,8 @@ export interface CreateTaskCliOptionsInput {
 	>;
 	readonly duration: Option.Option<number>;
 	readonly related: Option.Option<string>;
+	readonly blockedBy: Option.Option<string>;
+	readonly subtasks: Option.Option<string>;
 }
 
 export interface UpdateTaskCliOptionsInput {
@@ -111,6 +118,7 @@ export interface UpdateTaskCliOptionsInput {
 	>;
 	readonly duration: Option.Option<number>;
 	readonly related: Option.Option<string>;
+	readonly blockedBy: Option.Option<string>;
 }
 
 export interface CreateWorkLogCliOptionsInput {
@@ -300,6 +308,30 @@ export type TemplateInstantiateExecute<R, E> = (
 	},
 ) => Effect.Effect<void, E, R>;
 
+export type UnblockTaskExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+) => Effect.Effect<void, E, R>;
+
+export type ChainExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+) => Effect.Effect<void, E, R>;
+
+export type NextTaskExecute<R, E> = (
+	options: GlobalCliOptions,
+	energy?: string,
+) => Effect.Effect<void, E, R>;
+
+export type DropTaskExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+) => Effect.Effect<void, E, R>;
+
+export type TodayExecute<R, E> = (
+	options: GlobalCliOptions,
+) => Effect.Effect<void, E, R>;
+
 export const defaultDataDir = (
 	env: NodeJS.ProcessEnv = process.env,
 ): string => {
@@ -361,6 +393,24 @@ const parseTagFilter = (
 	return parsed.length > 0 ? parsed : undefined;
 };
 
+const parseSubtasksOption = (
+	value: string,
+): Array<{ text: string; done: boolean }> => {
+	const trimmed = value.trim();
+	if (trimmed.startsWith("[")) {
+		const parsed = JSON.parse(trimmed) as Array<{ text: string; done?: boolean }>;
+		return parsed.map((item) => ({
+			text: item.text,
+			done: item.done ?? false,
+		}));
+	}
+	return trimmed
+		.split(",")
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0)
+		.map((text) => ({ text, done: false }));
+};
+
 export const resolveListTaskFilters = (
 	options: ListTasksCliOptionsInput,
 ): ListTasksFilters => {
@@ -374,6 +424,7 @@ export const resolveListTaskFilters = (
 	const durationMin = toUndefined(options.durationMin);
 	const durationMax = toUndefined(options.durationMax);
 	const context = toUndefined(options.context);
+	const staleDays = toUndefined(options.staleDays);
 
 	return {
 		...(status !== undefined ? { status } : {}),
@@ -387,6 +438,7 @@ export const resolveListTaskFilters = (
 		...(durationMin !== undefined ? { duration_min: durationMin } : {}),
 		...(durationMax !== undefined ? { duration_max: durationMax } : {}),
 		...(context !== undefined ? { context } : {}),
+		...(staleDays !== undefined ? { stale_days: staleDays } : {}),
 	};
 };
 
@@ -407,6 +459,9 @@ export const resolveCreateTaskInput = (
 	const recurrenceStrategy = toUndefined(options.recurrenceStrategy);
 	const duration = toUndefined(options.duration);
 	const related = parseTagFilter(options.related);
+	const blockedBy = parseTagFilter(options.blockedBy);
+	const subtasksRaw = toUndefined(options.subtasks);
+	const subtasks = subtasksRaw !== undefined ? parseSubtasksOption(subtasksRaw) : undefined;
 
 	return {
 		title: options.title,
@@ -428,6 +483,8 @@ export const resolveCreateTaskInput = (
 			: {}),
 		...(duration !== undefined ? { estimated_minutes: duration } : {}),
 		...(related !== undefined ? { related } : {}),
+		...(blockedBy !== undefined ? { blocked_by: blockedBy } : {}),
+		...(subtasks !== undefined ? { subtasks } : {}),
 	};
 };
 
@@ -449,6 +506,7 @@ export const resolveUpdateTaskPatch = (
 	const recurrenceStrategy = toUndefined(options.recurrenceStrategy);
 	const duration = toUndefined(options.duration);
 	const related = parseTagFilter(options.related);
+	const blockedBy = parseTagFilter(options.blockedBy);
 
 	return {
 		...(title !== undefined ? { title } : {}),
@@ -470,6 +528,7 @@ export const resolveUpdateTaskPatch = (
 			: {}),
 		...(duration !== undefined ? { estimated_minutes: duration } : {}),
 		...(related !== undefined ? { related } : {}),
+		...(blockedBy !== undefined ? { blocked_by: blockedBy } : {}),
 	};
 };
 
@@ -641,6 +700,12 @@ export const makeListCommand = <R, E>(execute: ListTasksExecute<R, E>) =>
 				Options.withDescription("Filter by context"),
 				Options.optional,
 			),
+			staleDays: Options.integer("stale-days").pipe(
+				Options.withDescription(
+					"Include only tasks not updated in N days",
+				),
+				Options.optional,
+			),
 		},
 		(options) =>
 			Effect.gen(function* () {
@@ -744,6 +809,16 @@ export const makeCreateCommand = <R, E>(execute: CreateTaskExecute<R, E>) =>
 				Options.withDescription("Comma-separated related task IDs"),
 				Options.optional,
 			),
+			blockedBy: Options.text("blocked-by").pipe(
+				Options.withDescription("Comma-separated IDs of blocking tasks"),
+				Options.optional,
+			),
+			subtasks: Options.text("subtasks").pipe(
+				Options.withDescription(
+					'Comma-separated subtask texts, or JSON array of {text,done} objects',
+				),
+				Options.optional,
+			),
 		},
 		(options) =>
 			Effect.gen(function* () {
@@ -825,6 +900,10 @@ export const makeUpdateCommand = <R, E>(execute: UpdateTaskExecute<R, E>) =>
 			),
 			related: Options.text("related").pipe(
 				Options.withDescription("Updated comma-separated related task IDs"),
+				Options.optional,
+			),
+			blockedBy: Options.text("blocked-by").pipe(
+				Options.withDescription("Updated comma-separated IDs of blocking tasks"),
 				Options.optional,
 			),
 		},
@@ -1284,6 +1363,8 @@ export const makeTemplateCreateCommand = <R, E>(
 					recurrence: Option.none(),
 					recurrenceTrigger: Option.none(),
 					recurrenceStrategy: Option.none(),
+					blockedBy: Option.none(),
+					subtasks: Option.none(),
 				});
 				yield* execute(globalOptions, { ...input, is_template: true });
 			}),
@@ -1369,6 +1450,119 @@ export const makeTemplateCommand = <R, E>(
 			makeTemplateInstantiateCommand(executeInstantiate),
 		]),
 	);
+
+export const makeUnblockCommand = <R, E>(execute: UnblockTaskExecute<R, E>) =>
+	Command.make(
+		"unblock",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Task ID to complete and unblock dependents")),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("Complete a task and show which dependents are now unblocked"));
+
+export const makeChainCommand = <R, E>(execute: ChainExecute<R, E>) =>
+	Command.make(
+		"chain",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("Show the dependency chain (ancestors and descendants) for a task"));
+
+export const makeNextCommand = <R, E>(execute: NextTaskExecute<R, E>) =>
+	Command.make(
+		"next",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			energy: Options.text("energy").pipe(
+				Options.withDescription("Filter by energy level (low, medium, high)"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				const energy = toUndefined(options.energy);
+				yield* execute(globalOptions, energy);
+			}),
+	).pipe(Command.withDescription("Get the next actionable task (highest urgency, unblocked, not deferred)"));
+
+export const makeDropCommand = <R, E>(execute: DropTaskExecute<R, E>) =>
+	Command.make(
+		"drop",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("Drop a task (set status to dropped)"));
+
+export const makeTodayCommand = <R, E>(execute: TodayExecute<R, E>) =>
+	Command.make(
+		"today",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions);
+			}),
+	).pipe(Command.withDescription("Show today's briefing: daily highlight, due/overdue tasks, and undeferred tasks"));
 
 export const makeProjectListCommand = <R, E>(
 	execute: ListProjectsExecute<R, E>,
@@ -1675,6 +1869,11 @@ export const makeTasksCommand = <R, E>(
 	executeTemplateList: TemplateListExecute<R, E>,
 	executeTemplateCreate: TemplateCreateExecute<R, E>,
 	executeTemplateInstantiate: TemplateInstantiateExecute<R, E>,
+	executeUnblock: UnblockTaskExecute<R, E>,
+	executeChain: ChainExecute<R, E>,
+	executeNext: NextTaskExecute<R, E>,
+	executeDrop: DropTaskExecute<R, E>,
+	executeToday: TodayExecute<R, E>,
 ) =>
 	Command.make(
 		"tasks",
@@ -1723,6 +1922,11 @@ export const makeTasksCommand = <R, E>(
 				executeTemplateCreate,
 				executeTemplateInstantiate,
 			),
+			makeUnblockCommand(executeUnblock),
+			makeChainCommand(executeChain),
+			makeNextCommand(executeNext),
+			makeDropCommand(executeDrop),
+			makeTodayCommand(executeToday),
 		]),
 	);
 
@@ -1883,6 +2087,30 @@ const noopTemplateInstantiateExecute = (
 		readonly status?: string;
 		readonly projects?: ReadonlyArray<string>;
 	},
+): Effect.Effect<void> => Effect.void;
+
+const noopUnblockExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopChainExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopNextExecute = (
+	_options: GlobalCliOptions,
+	_energy?: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopDropExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopTodayExecute = (
+	_options: GlobalCliOptions,
 ): Effect.Effect<void> => Effect.void;
 
 const defaultListExecute: ListTasksExecute<never, string> = (
@@ -2339,6 +2567,96 @@ const defaultTemplateInstantiateExecute: TemplateInstantiateExecute<
 		});
 	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
+const defaultUnblockExecute: UnblockTaskExecute<never, string> = (
+	options,
+	id,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const completed = yield* repository.completeTask(id);
+		const allTasks = yield* repository.listTasks();
+		const unblocked = allTasks.filter(
+			(t) => t.blocked_by.includes(id) && isUnblocked(t, allTasks),
+		);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(
+				`${formatOutput({ completed, unblocked }, options.pretty)}\n`,
+			);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultChainExecute: ChainExecute<never, string> = (options, id) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const allTasks = yield* repository.listTasks();
+		const chain = buildDependencyChain(id, allTasks);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(
+				`${formatOutput(chain, options.pretty)}\n`,
+			);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultNextExecute: NextTaskExecute<never, string> = (
+	options,
+	energy,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const allTasks = yield* repository.listTasks({ status: "active" });
+		const today = new Date().toISOString().slice(0, 10);
+		const deferredPredicate = isDeferred(today);
+
+		const candidates = allTasks.filter(
+			(t) =>
+				isUnblocked(t, allTasks) &&
+				!deferredPredicate(t) &&
+				(energy === undefined || t.energy === energy),
+		);
+
+		candidates.sort(byUrgencyDesc);
+		const next = candidates.length > 0 ? candidates[0] : null;
+
+		yield* Effect.sync(() => {
+			process.stdout.write(
+				`${formatOutput(next, options.pretty)}\n`,
+			);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultDropExecute: DropTaskExecute<never, string> = (options, id) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const task = yield* repository.updateTask(id, { status: "dropped" });
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(task, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultTodayExecute: TodayExecute<never, string> = (options) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const highlight = yield* repository.getDailyHighlight();
+		const allTasks = yield* repository.listTasks({ status: "active" });
+		const today = new Date().toISOString().slice(0, 10);
+
+		const due = allTasks.filter(
+			(t) => t.due !== null && t.due <= today,
+		);
+		const undeferred = allTasks.filter(
+			(t) => t.defer_until !== null && t.defer_until <= today,
+		);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(
+				`${formatOutput({ highlight, due, undeferred }, options.pretty)}\n`,
+			);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
 export const makeCli = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E> = noopListExecute as ListTasksExecute<
@@ -2445,6 +2763,11 @@ export const makeCli = <R, E>(
 	executeTemplateList: TemplateListExecute<R, E> = noopTemplateListExecute as TemplateListExecute<R, E>,
 	executeTemplateCreate: TemplateCreateExecute<R, E> = noopTemplateCreateExecute as TemplateCreateExecute<R, E>,
 	executeTemplateInstantiate: TemplateInstantiateExecute<R, E> = noopTemplateInstantiateExecute as TemplateInstantiateExecute<R, E>,
+	executeUnblock: UnblockTaskExecute<R, E> = noopUnblockExecute as UnblockTaskExecute<R, E>,
+	executeChain: ChainExecute<R, E> = noopChainExecute as ChainExecute<R, E>,
+	executeNext: NextTaskExecute<R, E> = noopNextExecute as NextTaskExecute<R, E>,
+	executeDrop: DropTaskExecute<R, E> = noopDropExecute as DropTaskExecute<R, E>,
+	executeToday: TodayExecute<R, E> = noopTodayExecute as TodayExecute<R, E>,
 ) =>
 	Command.run(
 		makeTasksCommand(
@@ -2480,6 +2803,11 @@ export const makeCli = <R, E>(
 			executeTemplateList,
 			executeTemplateCreate,
 			executeTemplateInstantiate,
+			executeUnblock,
+			executeChain,
+			executeNext,
+			executeDrop,
+			executeToday,
 		),
 		{
 			name: "Tashks CLI",
@@ -2520,6 +2848,11 @@ export const cli = makeCli(
 	defaultTemplateListExecute,
 	defaultTemplateCreateExecute,
 	defaultTemplateInstantiateExecute,
+	defaultUnblockExecute,
+	defaultChainExecute,
+	defaultNextExecute,
+	defaultDropExecute,
+	defaultTodayExecute,
 );
 
 export const runCli = (argv: ReadonlyArray<string> = process.argv) => cli(argv);

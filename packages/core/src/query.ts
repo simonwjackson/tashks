@@ -523,6 +523,59 @@ export const listAreas = (
 	return Array.from(areas).sort();
 };
 
+export const byUrgencyDesc = (a: Task, b: Task): number => {
+	const urgencyRanks: Record<string, number> = { low: 0, medium: 1, high: 2 };
+	const aRank = urgencyRanks[a.urgency] ?? -1;
+	const bRank = urgencyRanks[b.urgency] ?? -1;
+	return bRank - aRank;
+};
+
+export interface DependencyChain {
+	readonly ancestors: Task[];
+	readonly target: Task | null;
+	readonly descendants: Task[];
+}
+
+export const buildDependencyChain = (
+	targetId: string,
+	allTasks: ReadonlyArray<Task>,
+): DependencyChain => {
+	const taskById = new Map(allTasks.map((t) => [t.id, t]));
+	const target = taskById.get(targetId) ?? null;
+
+	const ancestors: Task[] = [];
+	const visitedUp = new Set<string>();
+	const walkUp = (id: string): void => {
+		const task = taskById.get(id);
+		if (task === undefined) return;
+		for (const blockerId of task.blocked_by) {
+			if (visitedUp.has(blockerId)) continue;
+			visitedUp.add(blockerId);
+			const blocker = taskById.get(blockerId);
+			if (blocker !== undefined) {
+				walkUp(blockerId);
+				ancestors.push(blocker);
+			}
+		}
+	};
+	walkUp(targetId);
+
+	const descendants: Task[] = [];
+	const visitedDown = new Set<string>();
+	const walkDown = (id: string): void => {
+		for (const task of allTasks) {
+			if (task.blocked_by.includes(id) && !visitedDown.has(task.id)) {
+				visitedDown.add(task.id);
+				descendants.push(task);
+				walkDown(task.id);
+			}
+		}
+	};
+	walkDown(targetId);
+
+	return { ancestors, target, descendants };
+};
+
 export const listContexts = (
 	tasks: ReadonlyArray<Task>,
 ): Array<string> => {

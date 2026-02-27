@@ -3,6 +3,8 @@ import { randomBytes } from "node:crypto";
 const idSuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
 const idSuffixLength = 6;
 
+const maxSlugLength = 30;
+
 const slugifyTitle = (title: string): string => {
 	const slug = title
 		.toLowerCase()
@@ -11,7 +13,8 @@ const slugifyTitle = (title: string): string => {
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/^-+|-+$/g, "");
 
-	return slug.length > 0 ? slug : "task";
+	const base = slug.length > 0 ? slug : "task";
+	return base.slice(0, maxSlugLength).replace(/-+$/, "");
 };
 
 const randomIdSuffix = (): string => {
