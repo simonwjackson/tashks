@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.3 (2026-02-27)
+
+### Fixes
+- Trigger publish workflow via dispatch since GITHUB_TOKEN tag pushes don't trigger workflows (23145c4)
+- Remove duplicate publish-npm job from ci.yml (d9ac7ea)
+
+
 ## v0.2.2 (2026-02-27)
 
 ### Fixes
