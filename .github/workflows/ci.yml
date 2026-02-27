@@ -24,8 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    outputs:
-      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,47 +38,4 @@ jobs:
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          nix develop --command bash -c "bun install && bun run scripts/release.ts"
-          echo "version=$(node -p "require('./packages/core/package.json').version")" >> "$GITHUB_OUTPUT"
-
-  publish-npm:
-    needs: [release]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: v${{ needs.release.outputs.version }}
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
-      - run: nix develop --command bash -c "bun install && bun run build"
-      - name: Resolve workspace references
-        run: |
-          CORE_VERSION=$(node -p "require('./packages/core/package.json').version")
-          sed -i "s/\"workspace:\*\"/\"^${CORE_VERSION}\"/" packages/cli/package.json
-      - name: Fix package.json validation issues
-        run: |
-          for pkg in core cli; do
-            (cd "packages/${pkg}" && npm pkg fix)
-          done
-      - name: Publish @tashks/core
-        working-directory: packages/core
-        run: |
-          set -o pipefail
-          npm publish --provenance --access public --ignore-scripts 2>&1 | tee /tmp/npm-out.log || {
-            grep -q 'You cannot publish over the previously published versions' /tmp/npm-out.log && echo "Already published, skipping" || exit 1
-          }
-      - name: Publish @tashks/cli
-        working-directory: packages/cli
-        run: |
-          set -o pipefail
-          npm publish --provenance --access public --ignore-scripts 2>&1 | tee /tmp/npm-out.log || {
-            grep -q 'You cannot publish over the previously published versions' /tmp/npm-out.log && echo "Already published, skipping" || exit 1
-          }
+        run: nix develop --command bash -c "bun install && bun run scripts/release.ts"
