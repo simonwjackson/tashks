@@ -181,11 +181,18 @@ try {
 	if (existsSync(notesFile)) unlinkSync(notesFile);
 }
 
+// --- Trigger publish workflow (tag push via GITHUB_TOKEN won't trigger it) ---
+execSync(`gh workflow run publish.yml -f tag=v${next}`, {
+	cwd: root,
+	stdio: "inherit",
+});
+
 console.log(`\nReleased v${next}`);
 console.log(`  Commit: chore: release v${next}`);
 console.log(`  Tag: v${next}`);
 console.log("  Pushed to origin");
 console.log("  GitHub Release created");
+console.log("  Publish workflow triggered");
 
 function capitalize(s: string): string {
 	return s.charAt(0).toUpperCase() + s.slice(1);
