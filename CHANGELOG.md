@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.1 (2026-02-27)
+
+### Fixes
+- Fail npm publish on real errors, only ignore duplicate versions (31202b2)
+
+
 ## v0.2.0 (2026-02-27)
 
 ### Features
