@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.2 (2026-02-27)
+
+### Fixes
+- Add pipefail to npm publish steps so failures aren't masked (c74a02e)
+
+
 ## v0.2.1 (2026-02-27)
 
 ### Fixes
