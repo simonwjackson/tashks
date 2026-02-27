@@ -71,8 +71,8 @@ jobs:
             (cd "packages/${pkg}" && npm pkg fix)
           done
       - name: Publish @tashks/core
-        run: npm publish --provenance --access public --ignore-scripts || true
+        run: npm publish --provenance --access public --ignore-scripts 2>&1 | tee /tmp/npm-out.log || { grep -q 'You cannot publish over the previously published versions' /tmp/npm-out.log && echo "Already published, skipping" || exit 1; }
         working-directory: packages/core
       - name: Publish @tashks/cli
-        run: npm publish --provenance --access public --ignore-scripts || true
+        run: npm publish --provenance --access public --ignore-scripts 2>&1 | tee /tmp/npm-out.log || { grep -q 'You cannot publish over the previously published versions' /tmp/npm-out.log && echo "Already published, skipping" || exit 1; }
         working-directory: packages/cli
