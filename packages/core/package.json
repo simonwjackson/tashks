@@ -1,6 +1,6 @@
 {
 	"name": "@tashks/core",
-	"version": "0.1.5",
+	"version": "0.2.0",
 	"type": "module",
 	"description": "Personal task management library — YAML files on disk, Effect ecosystem",
 	"main": "dist/src/repository.js",
@@ -23,7 +23,10 @@
 			"import": "./dist/src/proseql-repository.js"
 		}
 	},
-	"files": ["dist", "LICENSE"],
+	"files": [
+		"dist",
+		"LICENSE"
+	],
 	"license": "MIT",
 	"author": "Simon W. Jackson",
 	"publishConfig": {
