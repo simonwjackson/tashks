@@ -1,3 +1,4 @@
+// @tashks/ai types
 import type { TaskRepositoryService } from "@tashks/core/repository";
 
 export interface ToolResult {
