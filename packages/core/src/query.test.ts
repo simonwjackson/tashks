@@ -12,7 +12,10 @@ import {
 	byCreatedAsc,
 	byDueAsc,
 	byEnergyAsc,
+	byPriorityAsc,
+	byUrgencyDesc,
 	byUpdatedDescThenTitle,
+	buildDependencyChain,
 	hasContext,
 	hasDurationMax,
 	hasDurationMin,
@@ -63,6 +66,13 @@ const makeTask = (
 	related: overrides.related ?? [],
 	is_template: overrides.is_template ?? false,
 	from_template: overrides.from_template ?? null,
+	priority: overrides.priority ?? null,
+	type: overrides.type ?? "task",
+	assignee: overrides.assignee ?? null,
+	parent: overrides.parent ?? null,
+	close_reason: overrides.close_reason ?? null,
+	description: overrides.description ?? "",
+	comments: overrides.comments ?? [],
 });
 
 const writePerspectiveConfig = async (
@@ -980,5 +990,66 @@ describe("applyPerspectiveToTasks with new filters", () => {
 
 		expect(filtered.map((t) => t.id)).toContain("template");
 		expect(filtered.map((t) => t.id)).toContain("regular");
+	});
+});
+
+describe("byPriorityAsc", () => {
+	it("sorts tasks by priority ascending with nulls last", () => {
+		const tasks = [
+			makeTask({ id: "none", title: "No priority", priority: null }),
+			makeTask({ id: "high", title: "High", priority: 0 }),
+			makeTask({ id: "low", title: "Low", priority: 3 }),
+			makeTask({ id: "mid", title: "Mid", priority: 1 }),
+		];
+
+		const sorted = [...tasks].sort(byPriorityAsc);
+		expect(sorted.map((t) => t.id)).toEqual(["high", "mid", "low", "none"]);
+	});
+
+	it("returns 0 when both priorities are null", () => {
+		const a = makeTask({ id: "a", title: "A", priority: null });
+		const b = makeTask({ id: "b", title: "B", priority: null });
+		expect(byPriorityAsc(a, b)).toBe(0);
+	});
+
+	it("returns 0 when priorities are equal", () => {
+		const a = makeTask({ id: "a", title: "A", priority: 2 });
+		const b = makeTask({ id: "b", title: "B", priority: 2 });
+		expect(byPriorityAsc(a, b)).toBe(0);
+	});
+});
+
+describe("byUrgencyDesc", () => {
+	it("sorts tasks by urgency descending (high first)", () => {
+		const tasks = [
+			makeTask({ id: "low", title: "Low", urgency: "low" }),
+			makeTask({ id: "high", title: "High", urgency: "high" }),
+			makeTask({ id: "med", title: "Med", urgency: "medium" }),
+		];
+
+		const sorted = [...tasks].sort(byUrgencyDesc);
+		expect(sorted.map((t) => t.id)).toEqual(["high", "med", "low"]);
+	});
+});
+
+describe("buildDependencyChain", () => {
+	it("finds ancestors and descendants of a target task", () => {
+		const tasks = [
+			makeTask({ id: "root", title: "Root" }),
+			makeTask({ id: "mid", title: "Mid", blocked_by: ["root"] }),
+			makeTask({ id: "leaf", title: "Leaf", blocked_by: ["mid"] }),
+		];
+
+		const chain = buildDependencyChain("mid", tasks);
+		expect(chain.target?.id).toBe("mid");
+		expect(chain.ancestors.map((t) => t.id)).toEqual(["root"]);
+		expect(chain.descendants.map((t) => t.id)).toEqual(["leaf"]);
+	});
+
+	it("returns null target when id not found", () => {
+		const chain = buildDependencyChain("missing", []);
+		expect(chain.target).toBeNull();
+		expect(chain.ancestors).toEqual([]);
+		expect(chain.descendants).toEqual([]);
 	});
 });

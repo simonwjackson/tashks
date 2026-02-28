@@ -16,6 +16,7 @@ describe("schema", () => {
 		const encodedTask: Schema.Schema.Encoded<typeof Task> = {
 			id: "revive-unzen",
 			title: "Revive unzen server",
+			description: "Bring the unzen server back online",
 			status: "active",
 			area: "infrastructure",
 			projects: ["homelab"],
@@ -44,6 +45,14 @@ describe("schema", () => {
 			related: ["other-task"],
 			is_template: false,
 			from_template: null,
+			priority: 1,
+			type: "task",
+			assignee: "agent-1",
+			parent: null,
+			close_reason: null,
+			comments: [
+				{ text: "Started work", author: "simon", created: "2026-02-16" },
+			],
 		};
 
 		const decode = Schema.decodeUnknownSync(Task);
@@ -85,6 +94,13 @@ describe("schema", () => {
 			related: [],
 			is_template: false,
 			from_template: null,
+			priority: null,
+			type: "task",
+			assignee: null,
+			parent: null,
+			close_reason: null,
+			description: "",
+			comments: [],
 		});
 		expect(decodedInput.created).toMatch(isoDatePattern);
 		expect(decodedInput.updated).toMatch(isoDatePattern);

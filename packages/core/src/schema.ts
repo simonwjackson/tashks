@@ -30,9 +30,19 @@ export type TaskRecurrenceStrategy = Schema.Schema.Type<
 	typeof TaskRecurrenceStrategy
 >;
 
+export const Comment = Schema.Struct({
+	text: Schema.String,
+	author: Schema.optionalWith(Schema.String, { default: () => "" }),
+	created: Schema.optionalWith(Schema.String, {
+		default: () => new Date().toISOString().slice(0, 10),
+	}),
+});
+export type Comment = Schema.Schema.Type<typeof Comment>;
+
 export const Task = Schema.Struct({
 	id: Schema.String,
 	title: Schema.String,
+	description: Schema.String,
 	status: TaskStatus,
 	area: TaskArea,
 	projects: Schema.Array(Schema.String),
@@ -58,6 +68,12 @@ export const Task = Schema.Struct({
 	related: Schema.Array(Schema.String),
 	is_template: Schema.Boolean,
 	from_template: Schema.NullOr(Schema.String),
+	priority: Schema.NullOr(Schema.Number),
+	type: Schema.String,
+	assignee: Schema.NullOr(Schema.String),
+	parent: Schema.NullOr(Schema.String),
+	close_reason: Schema.NullOr(Schema.String),
+	comments: Schema.Array(Comment),
 });
 export type Task = Schema.Schema.Type<typeof Task>;
 
@@ -130,6 +146,27 @@ export const TaskCreateInput = Schema.Struct({
 	from_template: Schema.optionalWith(Schema.NullOr(Schema.String), {
 		default: () => null,
 	}),
+	priority: Schema.optionalWith(Schema.NullOr(Schema.Number), {
+		default: () => null,
+	}),
+	type: Schema.optionalWith(Schema.String, {
+		default: () => "task",
+	}),
+	assignee: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
+	parent: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
+	close_reason: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		default: () => null,
+	}),
+	description: Schema.optionalWith(Schema.String, {
+		default: () => "",
+	}),
+	comments: Schema.optionalWith(Schema.Array(Comment), {
+		default: () => [],
+	}),
 });
 export type TaskCreateInput = Schema.Schema.Encoded<typeof TaskCreateInput>;
 
@@ -181,6 +218,21 @@ export const TaskPatch = Schema.Struct({
 	from_template: Schema.optionalWith(Schema.NullOr(Schema.String), {
 		exact: true,
 	}),
+	priority: Schema.optionalWith(Schema.NullOr(Schema.Number), {
+		exact: true,
+	}),
+	type: Schema.optionalWith(Schema.String, { exact: true }),
+	assignee: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		exact: true,
+	}),
+	parent: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		exact: true,
+	}),
+	close_reason: Schema.optionalWith(Schema.NullOr(Schema.String), {
+		exact: true,
+	}),
+	description: Schema.optionalWith(Schema.String, { exact: true }),
+	comments: Schema.optionalWith(Schema.Array(Comment), { exact: true }),
 });
 export type TaskPatch = Schema.Schema.Encoded<typeof TaskPatch>;
 

@@ -630,6 +630,41 @@ export const applyListTaskFilters = (
 				return false;
 			}
 
+			if (
+				filters.priority !== undefined &&
+				task.priority !== filters.priority
+			) {
+				return false;
+			}
+
+			if (
+				filters.type !== undefined &&
+				task.type !== filters.type
+			) {
+				return false;
+			}
+
+			if (
+				filters.assignee !== undefined &&
+				task.assignee !== filters.assignee
+			) {
+				return false;
+			}
+
+			if (
+				filters.unassigned === true &&
+				task.assignee !== null
+			) {
+				return false;
+			}
+
+			if (
+				filters.parent !== undefined &&
+				task.parent !== filters.parent
+			) {
+				return false;
+			}
+
 			return true;
 		})
 		.sort(byUpdatedDescThenTitle);
@@ -649,6 +684,11 @@ export interface ListTasksFilters {
 	readonly context?: string;
 	readonly include_templates?: boolean;
 	readonly stale_days?: number;
+	readonly priority?: number;
+	readonly type?: string;
+	readonly assignee?: string;
+	readonly unassigned?: boolean;
+	readonly parent?: string;
 }
 
 export interface ListProjectsFilters {
@@ -785,6 +825,7 @@ export const buildInstanceFromTemplate = (
 	return decodeTask({
 		id: generateTaskId(overrides?.title ?? template.title),
 		title: overrides?.title ?? template.title,
+		description: template.description,
 		status: overrides?.status ?? "backlog",
 		area: template.area,
 		projects: overrides?.projects
@@ -812,6 +853,12 @@ export const buildInstanceFromTemplate = (
 		related: [...template.related],
 		is_template: false,
 		from_template: template.id,
+		priority: template.priority,
+		type: template.type,
+		assignee: null,
+		parent: null,
+		close_reason: null,
+		comments: [],
 	});
 };
 
@@ -1185,6 +1232,13 @@ const migrateTaskRecord = (record: unknown): unknown => {
 	if (!("related" in rec)) rec.related = [];
 	if (!("is_template" in rec)) rec.is_template = false;
 	if (!("from_template" in rec)) rec.from_template = null;
+	if (!("priority" in rec)) rec.priority = null;
+	if (!("type" in rec)) rec.type = "task";
+	if (!("assignee" in rec)) rec.assignee = null;
+	if (!("parent" in rec)) rec.parent = null;
+	if (!("close_reason" in rec)) rec.close_reason = null;
+	if (!("description" in rec)) rec.description = "";
+	if (!("comments" in rec)) rec.comments = [];
 	return rec;
 };
 

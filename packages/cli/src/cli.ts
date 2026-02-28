@@ -19,7 +19,10 @@ import { ProseqlRepositoryLive } from "@tashks/core/proseql-repository";
 import {
 	applyPerspectiveToTasks,
 	buildDependencyChain,
+	byPriorityAsc,
+	byCreatedAsc,
 	byUrgencyDesc,
+	isBlocked,
 	isDeferred,
 	isUnblocked,
 	listAreas,
@@ -56,6 +59,11 @@ export interface ListTasksCliOptionsInput {
 	readonly durationMax: Option.Option<number>;
 	readonly context: Option.Option<string>;
 	readonly staleDays: Option.Option<number>;
+	readonly priority: Option.Option<number>;
+	readonly type: Option.Option<string>;
+	readonly assignee: Option.Option<string>;
+	readonly unassigned: boolean;
+	readonly parent: Option.Option<string>;
 }
 
 export interface ListWorkLogCliOptionsInput {
@@ -96,6 +104,11 @@ export interface CreateTaskCliOptionsInput {
 	readonly related: Option.Option<string>;
 	readonly blockedBy: Option.Option<string>;
 	readonly subtasks: Option.Option<string>;
+	readonly priority: Option.Option<number>;
+	readonly type: Option.Option<string>;
+	readonly assignee: Option.Option<string>;
+	readonly parent: Option.Option<string>;
+	readonly description: Option.Option<string>;
 }
 
 export interface UpdateTaskCliOptionsInput {
@@ -119,6 +132,12 @@ export interface UpdateTaskCliOptionsInput {
 	readonly duration: Option.Option<number>;
 	readonly related: Option.Option<string>;
 	readonly blockedBy: Option.Option<string>;
+	readonly priority: Option.Option<number>;
+	readonly type: Option.Option<string>;
+	readonly assignee: Option.Option<string>;
+	readonly parent: Option.Option<string>;
+	readonly description: Option.Option<string>;
+	readonly claim: boolean;
 }
 
 export interface CreateWorkLogCliOptionsInput {
@@ -193,6 +212,7 @@ export type HighlightTaskExecute<R, E> = (
 export type CompleteTaskExecute<R, E> = (
 	options: GlobalCliOptions,
 	id: string,
+	reason?: string,
 ) => Effect.Effect<void, E, R>;
 
 export type RecurrenceCheckExecute<R, E> = (
@@ -332,6 +352,67 @@ export type TodayExecute<R, E> = (
 	options: GlobalCliOptions,
 ) => Effect.Effect<void, E, R>;
 
+export type CommentsListExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+) => Effect.Effect<void, E, R>;
+
+export type CommentsAddExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+	text: string,
+	author?: string,
+) => Effect.Effect<void, E, R>;
+
+export type DepAddExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+	dependsOn: string,
+) => Effect.Effect<void, E, R>;
+
+export type DepRemoveExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+	dependsOn: string,
+) => Effect.Effect<void, E, R>;
+
+export type DepListExecute<R, E> = (
+	options: GlobalCliOptions,
+	id: string,
+) => Effect.Effect<void, E, R>;
+
+export type ReadyExecute<R, E> = (
+	options: GlobalCliOptions,
+	filters: {
+		readonly limit?: number;
+		readonly assignee?: string;
+		readonly priority?: number;
+		readonly type?: string;
+		readonly unassigned?: boolean;
+		readonly sort?: string;
+	},
+) => Effect.Effect<void, E, R>;
+
+export type BlockedExecute<R, E> = (
+	options: GlobalCliOptions,
+	limit?: number,
+) => Effect.Effect<void, E, R>;
+
+export type SearchExecute<R, E> = (
+	options: GlobalCliOptions,
+	query: string,
+	filters: { readonly status?: string; readonly limit?: number },
+) => Effect.Effect<void, E, R>;
+
+export type StatusExecute<R, E> = (
+	options: GlobalCliOptions,
+) => Effect.Effect<void, E, R>;
+
+export type PrimeExecute<R, E> = (
+	options: GlobalCliOptions,
+	full: boolean,
+) => Effect.Effect<void, E, R>;
+
 export const defaultDataDir = (
 	env: NodeJS.ProcessEnv = process.env,
 ): string => {
@@ -425,6 +506,10 @@ export const resolveListTaskFilters = (
 	const durationMax = toUndefined(options.durationMax);
 	const context = toUndefined(options.context);
 	const staleDays = toUndefined(options.staleDays);
+	const priority = toUndefined(options.priority);
+	const type = toUndefined(options.type);
+	const assignee = toUndefined(options.assignee);
+	const parent = toUndefined(options.parent);
 
 	return {
 		...(status !== undefined ? { status } : {}),
@@ -439,6 +524,11 @@ export const resolveListTaskFilters = (
 		...(durationMax !== undefined ? { duration_max: durationMax } : {}),
 		...(context !== undefined ? { context } : {}),
 		...(staleDays !== undefined ? { stale_days: staleDays } : {}),
+		...(priority !== undefined ? { priority } : {}),
+		...(type !== undefined ? { type } : {}),
+		...(assignee !== undefined ? { assignee } : {}),
+		...(options.unassigned ? { unassigned: true } : {}),
+		...(parent !== undefined ? { parent } : {}),
 	};
 };
 
@@ -462,6 +552,11 @@ export const resolveCreateTaskInput = (
 	const blockedBy = parseTagFilter(options.blockedBy);
 	const subtasksRaw = toUndefined(options.subtasks);
 	const subtasks = subtasksRaw !== undefined ? parseSubtasksOption(subtasksRaw) : undefined;
+	const priority = toUndefined(options.priority);
+	const type = toUndefined(options.type);
+	const assignee = toUndefined(options.assignee);
+	const parent = toUndefined(options.parent);
+	const description = toUndefined(options.description);
 
 	return {
 		title: options.title,
@@ -485,6 +580,11 @@ export const resolveCreateTaskInput = (
 		...(related !== undefined ? { related } : {}),
 		...(blockedBy !== undefined ? { blocked_by: blockedBy } : {}),
 		...(subtasks !== undefined ? { subtasks } : {}),
+		...(priority !== undefined ? { priority } : {}),
+		...(type !== undefined ? { type } : {}),
+		...(assignee !== undefined ? { assignee } : {}),
+		...(parent !== undefined ? { parent } : {}),
+		...(description !== undefined ? { description } : {}),
 	};
 };
 
@@ -507,6 +607,11 @@ export const resolveUpdateTaskPatch = (
 	const duration = toUndefined(options.duration);
 	const related = parseTagFilter(options.related);
 	const blockedBy = parseTagFilter(options.blockedBy);
+	const priority = toUndefined(options.priority);
+	const type = toUndefined(options.type);
+	const assignee = toUndefined(options.assignee);
+	const parent = toUndefined(options.parent);
+	const description = toUndefined(options.description);
 
 	return {
 		...(title !== undefined ? { title } : {}),
@@ -529,6 +634,12 @@ export const resolveUpdateTaskPatch = (
 		...(duration !== undefined ? { estimated_minutes: duration } : {}),
 		...(related !== undefined ? { related } : {}),
 		...(blockedBy !== undefined ? { blocked_by: blockedBy } : {}),
+		...(priority !== undefined ? { priority } : {}),
+		...(type !== undefined ? { type } : {}),
+		...(assignee !== undefined ? { assignee } : {}),
+		...(parent !== undefined ? { parent } : {}),
+		...(description !== undefined ? { description } : {}),
+		...(options.claim ? { assignee: assignee ?? "", status: "in_progress" as const } : {}),
 	};
 };
 
@@ -706,6 +817,25 @@ export const makeListCommand = <R, E>(execute: ListTasksExecute<R, E>) =>
 				),
 				Options.optional,
 			),
+			priority: Options.integer("priority").pipe(
+				Options.withDescription("Filter by priority level"),
+				Options.optional,
+			),
+			type: Options.text("type").pipe(
+				Options.withDescription("Filter by task type"),
+				Options.optional,
+			),
+			assignee: Options.text("assignee").pipe(
+				Options.withDescription("Filter by assignee"),
+				Options.optional,
+			),
+			unassigned: Options.boolean("unassigned").pipe(
+				Options.withDescription("Show only unassigned tasks"),
+			),
+			parent: Options.text("parent").pipe(
+				Options.withDescription("Filter by parent task ID"),
+				Options.optional,
+			),
 		},
 		(options) =>
 			Effect.gen(function* () {
@@ -819,6 +949,26 @@ export const makeCreateCommand = <R, E>(execute: CreateTaskExecute<R, E>) =>
 				),
 				Options.optional,
 			),
+			priority: Options.integer("priority").pipe(
+				Options.withDescription("Priority level (0=highest)"),
+				Options.optional,
+			),
+			type: Options.text("type").pipe(
+				Options.withDescription("Task type (e.g. task, bug, feature)"),
+				Options.optional,
+			),
+			assignee: Options.text("assignee").pipe(
+				Options.withDescription("Assignee name or ID"),
+				Options.optional,
+			),
+			parent: Options.text("parent").pipe(
+				Options.withDescription("Parent task ID"),
+				Options.optional,
+			),
+			description: Options.text("description").pipe(
+				Options.withDescription("Task description"),
+				Options.optional,
+			),
 		},
 		(options) =>
 			Effect.gen(function* () {
@@ -906,6 +1056,29 @@ export const makeUpdateCommand = <R, E>(execute: UpdateTaskExecute<R, E>) =>
 				Options.withDescription("Updated comma-separated IDs of blocking tasks"),
 				Options.optional,
 			),
+			priority: Options.integer("priority").pipe(
+				Options.withDescription("Updated priority level"),
+				Options.optional,
+			),
+			type: Options.text("type").pipe(
+				Options.withDescription("Updated task type"),
+				Options.optional,
+			),
+			assignee: Options.text("assignee").pipe(
+				Options.withDescription("Updated assignee"),
+				Options.optional,
+			),
+			parent: Options.text("parent").pipe(
+				Options.withDescription("Updated parent task ID"),
+				Options.optional,
+			),
+			description: Options.text("description").pipe(
+				Options.withDescription("Updated task description"),
+				Options.optional,
+			),
+			claim: Options.boolean("claim").pipe(
+				Options.withDescription("Set assignee and status to in_progress"),
+			),
 		},
 		(options) =>
 			Effect.gen(function* () {
@@ -975,6 +1148,10 @@ export const makeCompleteCommand = <R, E>(execute: CompleteTaskExecute<R, E>) =>
 			worklogFile: worklogFileOption,
 			pretty: prettyOption,
 			id: Options.text("id").pipe(Options.withDescription("Task ID")),
+			reason: Options.text("reason").pipe(
+				Options.withDescription("Close reason"),
+				Options.optional,
+			),
 		},
 		(options) =>
 			Effect.gen(function* () {
@@ -984,7 +1161,7 @@ export const makeCompleteCommand = <R, E>(execute: CompleteTaskExecute<R, E>) =>
 					worklogFile: options.worklogFile,
 					pretty: options.pretty,
 				});
-				yield* execute(globalOptions, options.id);
+				yield* execute(globalOptions, options.id, toUndefined(options.reason));
 			}),
 	).pipe(Command.withDescription("Complete a task by id"));
 
@@ -1365,6 +1542,11 @@ export const makeTemplateCreateCommand = <R, E>(
 					recurrenceStrategy: Option.none(),
 					blockedBy: Option.none(),
 					subtasks: Option.none(),
+					priority: Option.none(),
+					type: Option.none(),
+					assignee: Option.none(),
+					parent: Option.none(),
+					description: Option.none(),
 				});
 				yield* execute(globalOptions, { ...input, is_template: true });
 			}),
@@ -1563,6 +1745,319 @@ export const makeTodayCommand = <R, E>(execute: TodayExecute<R, E>) =>
 				yield* execute(globalOptions);
 			}),
 	).pipe(Command.withDescription("Show today's briefing: daily highlight, due/overdue tasks, and undeferred tasks"));
+
+export const makeCommentsListCommand = <R, E>(
+	execute: CommentsListExecute<R, E>,
+) =>
+	Command.make(
+		"list",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("List comments for a task"));
+
+export const makeCommentsAddCommand = <R, E>(
+	execute: CommentsAddExecute<R, E>,
+) =>
+	Command.make(
+		"add",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
+			text: Options.text("text").pipe(Options.withDescription("Comment text")),
+			author: Options.text("author").pipe(
+				Options.withDescription("Comment author"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id, options.text, toUndefined(options.author));
+			}),
+	).pipe(Command.withDescription("Add a comment to a task"));
+
+export const makeCommentsCommand = <R, E>(
+	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
+	executeList: CommentsListExecute<R, E>,
+	executeAdd: CommentsAddExecute<R, E>,
+) =>
+	Command.make(
+		"comments",
+		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
+		({ dataDir, tasksFile, worklogFile, pretty }) =>
+			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
+	).pipe(
+		Command.withDescription("Manage task comments"),
+		Command.withSubcommands([
+			makeCommentsListCommand(executeList),
+			makeCommentsAddCommand(executeAdd),
+		]),
+	);
+
+export const makeDepAddCommand = <R, E>(execute: DepAddExecute<R, E>) =>
+	Command.make(
+		"add",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
+			dependsOn: Options.text("depends-on").pipe(Options.withDescription("ID of blocking task")),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id, options.dependsOn);
+			}),
+	).pipe(Command.withDescription("Add a dependency to a task"));
+
+export const makeDepRemoveCommand = <R, E>(execute: DepRemoveExecute<R, E>) =>
+	Command.make(
+		"remove",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
+			dependsOn: Options.text("depends-on").pipe(Options.withDescription("ID of blocking task to remove")),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id, options.dependsOn);
+			}),
+	).pipe(Command.withDescription("Remove a dependency from a task"));
+
+export const makeDepListCommand = <R, E>(execute: DepListExecute<R, E>) =>
+	Command.make(
+		"list",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			id: Options.text("id").pipe(Options.withDescription("Task ID")),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.id);
+			}),
+	).pipe(Command.withDescription("List dependencies for a task"));
+
+export const makeDepCommand = <R, E>(
+	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
+	executeAdd: DepAddExecute<R, E>,
+	executeRemove: DepRemoveExecute<R, E>,
+	executeList: DepListExecute<R, E>,
+) =>
+	Command.make(
+		"dep",
+		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
+		({ dataDir, tasksFile, worklogFile, pretty }) =>
+			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
+	).pipe(
+		Command.withDescription("Manage task dependencies"),
+		Command.withSubcommands([
+			makeDepAddCommand(executeAdd),
+			makeDepRemoveCommand(executeRemove),
+			makeDepListCommand(executeList),
+		]),
+	);
+
+export const makeReadyCommand = <R, E>(execute: ReadyExecute<R, E>) =>
+	Command.make(
+		"ready",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			limit: Options.integer("limit").pipe(
+				Options.withDescription("Maximum number of tasks to return"),
+				Options.optional,
+			),
+			assignee: Options.text("assignee").pipe(
+				Options.withDescription("Filter by assignee"),
+				Options.optional,
+			),
+			priority: Options.integer("priority").pipe(
+				Options.withDescription("Filter by priority"),
+				Options.optional,
+			),
+			type: Options.text("type").pipe(
+				Options.withDescription("Filter by task type"),
+				Options.optional,
+			),
+			unassigned: Options.boolean("unassigned").pipe(
+				Options.withDescription("Show only unassigned tasks"),
+			),
+			sort: Options.text("sort").pipe(
+				Options.withDescription("Sort order (priority, urgency, created)"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, {
+					limit: toUndefined(options.limit),
+					assignee: toUndefined(options.assignee),
+					priority: toUndefined(options.priority),
+					type: toUndefined(options.type),
+					unassigned: options.unassigned || undefined,
+					sort: toUndefined(options.sort),
+				});
+			}),
+	).pipe(Command.withDescription("Show all unblocked, non-deferred, active tasks sorted by priority"));
+
+export const makeBlockedCommand = <R, E>(execute: BlockedExecute<R, E>) =>
+	Command.make(
+		"blocked",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			limit: Options.integer("limit").pipe(
+				Options.withDescription("Maximum number of tasks to return"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, toUndefined(options.limit));
+			}),
+	).pipe(Command.withDescription("Show all tasks with unresolved blockers"));
+
+export const makeSearchCommand = <R, E>(execute: SearchExecute<R, E>) =>
+	Command.make(
+		"search",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			query: Options.text("query").pipe(Options.withDescription("Search text")),
+			status: Options.text("status").pipe(
+				Options.withDescription("Filter by status"),
+				Options.optional,
+			),
+			limit: Options.integer("limit").pipe(
+				Options.withDescription("Maximum number of results"),
+				Options.optional,
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.query, {
+					status: toUndefined(options.status),
+					limit: toUndefined(options.limit),
+				});
+			}),
+	).pipe(Command.withDescription("Search tasks by title and description"));
+
+export const makeStatusCommand = <R, E>(execute: StatusExecute<R, E>) =>
+	Command.make(
+		"status",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions);
+			}),
+	).pipe(Command.withDescription("Show aggregated task board status counts"));
+
+export const makePrimeCommand = <R, E>(execute: PrimeExecute<R, E>) =>
+	Command.make(
+		"prime",
+		{
+			dataDir: dataDirOption,
+			tasksFile: tasksFileOption,
+			worklogFile: worklogFileOption,
+			pretty: prettyOption,
+			full: Options.boolean("full").pipe(
+				Options.withDescription("Include descriptions and dependency trees"),
+			),
+		},
+		(options) =>
+			Effect.gen(function* () {
+				const globalOptions = resolveGlobalCliOptions({
+					dataDir: options.dataDir,
+					tasksFile: options.tasksFile,
+					worklogFile: options.worklogFile,
+					pretty: options.pretty,
+				});
+				yield* execute(globalOptions, options.full);
+			}),
+	).pipe(Command.withDescription("Generate markdown context dump of the task board"));
 
 export const makeProjectListCommand = <R, E>(
 	execute: ListProjectsExecute<R, E>,
@@ -1874,6 +2369,18 @@ export const makeTasksCommand = <R, E>(
 	executeNext: NextTaskExecute<R, E>,
 	executeDrop: DropTaskExecute<R, E>,
 	executeToday: TodayExecute<R, E>,
+	executeComments: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
+	executeCommentsList: CommentsListExecute<R, E>,
+	executeCommentsAdd: CommentsAddExecute<R, E>,
+	executeDep: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
+	executeDepAdd: DepAddExecute<R, E>,
+	executeDepRemove: DepRemoveExecute<R, E>,
+	executeDepList: DepListExecute<R, E>,
+	executeReady: ReadyExecute<R, E>,
+	executeBlocked: BlockedExecute<R, E>,
+	executeSearch: SearchExecute<R, E>,
+	executeStatus: StatusExecute<R, E>,
+	executePrime: PrimeExecute<R, E>,
 ) =>
 	Command.make(
 		"tasks",
@@ -1927,6 +2434,13 @@ export const makeTasksCommand = <R, E>(
 			makeNextCommand(executeNext),
 			makeDropCommand(executeDrop),
 			makeTodayCommand(executeToday),
+			makeCommentsCommand(executeComments, executeCommentsList, executeCommentsAdd),
+			makeDepCommand(executeDep, executeDepAdd, executeDepRemove, executeDepList),
+			makeReadyCommand(executeReady),
+			makeBlockedCommand(executeBlocked),
+			makeSearchCommand(executeSearch),
+			makeStatusCommand(executeStatus),
+			makePrimeCommand(executePrime),
 		]),
 	);
 
@@ -1967,6 +2481,7 @@ const noopHighlightExecute = (
 const noopCompleteExecute = (
 	_options: GlobalCliOptions,
 	_id: string,
+	_reason?: string,
 ): Effect.Effect<void> => Effect.void;
 
 const noopRecurrenceCheckExecute = (
@@ -2113,6 +2628,67 @@ const noopTodayExecute = (
 	_options: GlobalCliOptions,
 ): Effect.Effect<void> => Effect.void;
 
+const noopCommentsListExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopCommentsAddExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+	_text: string,
+	_author?: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopDepAddExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+	_dependsOn: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopDepRemoveExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+	_dependsOn: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopDepListExecute = (
+	_options: GlobalCliOptions,
+	_id: string,
+): Effect.Effect<void> => Effect.void;
+
+const noopReadyExecute = (
+	_options: GlobalCliOptions,
+	_filters: {
+		readonly limit?: number;
+		readonly assignee?: string;
+		readonly priority?: number;
+		readonly type?: string;
+		readonly unassigned?: boolean;
+		readonly sort?: string;
+	},
+): Effect.Effect<void> => Effect.void;
+
+const noopBlockedExecute = (
+	_options: GlobalCliOptions,
+	_limit?: number,
+): Effect.Effect<void> => Effect.void;
+
+const noopSearchExecute = (
+	_options: GlobalCliOptions,
+	_query: string,
+	_filters: { readonly status?: string; readonly limit?: number },
+): Effect.Effect<void> => Effect.void;
+
+const noopStatusExecute = (
+	_options: GlobalCliOptions,
+): Effect.Effect<void> => Effect.void;
+
+const noopPrimeExecute = (
+	_options: GlobalCliOptions,
+	_full: boolean,
+): Effect.Effect<void> => Effect.void;
+
 const defaultListExecute: ListTasksExecute<never, string> = (
 	options,
 	filters,
@@ -2203,9 +2779,13 @@ const defaultHighlightExecute: HighlightTaskExecute<never, string> = (
 const defaultCompleteExecute: CompleteTaskExecute<never, string> = (
 	options,
 	id,
+	reason,
 ) =>
 	Effect.gen(function* () {
 		const repository = yield* TaskRepository;
+		if (reason !== undefined) {
+			yield* repository.updateTask(id, { close_reason: reason });
+		}
 		const task = yield* repository.completeTask(id);
 
 		yield* Effect.sync(() => {
@@ -2657,6 +3237,282 @@ const defaultTodayExecute: TodayExecute<never, string> = (options) =>
 		});
 	}).pipe(Effect.provide(makeRepositoryLayer(options)));
 
+const defaultCommentsListExecute: CommentsListExecute<never, string> = (
+	options,
+	id,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const task = yield* repository.getTask(id);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(task.comments, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultCommentsAddExecute: CommentsAddExecute<never, string> = (
+	options,
+	id,
+	text,
+	author,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const task = yield* repository.getTask(id);
+		const newComment = {
+			text,
+			author: author ?? "",
+			created: new Date().toISOString().slice(0, 10),
+		};
+		const updated = yield* repository.updateTask(id, {
+			comments: [...task.comments, newComment],
+		});
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(updated.comments, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultDepAddExecute: DepAddExecute<never, string> = (
+	options,
+	id,
+	dependsOn,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const task = yield* repository.getTask(id);
+		if (!task.blocked_by.includes(dependsOn)) {
+			yield* repository.updateTask(id, {
+				blocked_by: [...task.blocked_by, dependsOn],
+			});
+		}
+		const updated = yield* repository.getTask(id);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(updated.blocked_by, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultDepRemoveExecute: DepRemoveExecute<never, string> = (
+	options,
+	id,
+	dependsOn,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const task = yield* repository.getTask(id);
+		const updated = yield* repository.updateTask(id, {
+			blocked_by: task.blocked_by.filter((dep) => dep !== dependsOn),
+		});
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(updated.blocked_by, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultDepListExecute: DepListExecute<never, string> = (
+	options,
+	id,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const task = yield* repository.getTask(id);
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(task.blocked_by, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultReadyExecute: ReadyExecute<never, string> = (
+	options,
+	filters,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const allTasks = yield* repository.listTasks({ status: "active" });
+		const today = new Date().toISOString().slice(0, 10);
+		const deferredPredicate = isDeferred(today);
+
+		let candidates = allTasks.filter(
+			(t) =>
+				isUnblocked(t, allTasks) &&
+				!deferredPredicate(t) &&
+				(filters.assignee === undefined || t.assignee === filters.assignee) &&
+				(filters.priority === undefined || t.priority === filters.priority) &&
+				(filters.type === undefined || t.type === filters.type) &&
+				(filters.unassigned !== true || t.assignee === null),
+		);
+
+		const sortFn = filters.sort ?? "priority";
+		candidates.sort((a, b) => {
+			if (sortFn === "urgency") {
+				const byUrg = byUrgencyDesc(a, b);
+				if (byUrg !== 0) return byUrg;
+			} else if (sortFn === "created") {
+				const byCr = byCreatedAsc(a, b);
+				if (byCr !== 0) return byCr;
+			} else {
+				const byPri = byPriorityAsc(a, b);
+				if (byPri !== 0) return byPri;
+				const byUrg = byUrgencyDesc(a, b);
+				if (byUrg !== 0) return byUrg;
+			}
+			return byCreatedAsc(a, b);
+		});
+
+		if (filters.limit !== undefined) {
+			candidates = candidates.slice(0, filters.limit);
+		}
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(candidates, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultBlockedExecute: BlockedExecute<never, string> = (
+	options,
+	limit,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const allTasks = yield* repository.listTasks();
+		let blockedTasks = allTasks.filter(
+			(t) => t.status !== "done" && t.status !== "dropped" && isBlocked(t, allTasks),
+		);
+		if (limit !== undefined) {
+			blockedTasks = blockedTasks.slice(0, limit);
+		}
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(blockedTasks, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultSearchExecute: SearchExecute<never, string> = (
+	options,
+	query,
+	filters,
+) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const allTasks = yield* repository.listTasks();
+		const lowerQuery = query.toLowerCase();
+
+		let results = allTasks.filter((t) => {
+			if (
+				filters.status !== undefined &&
+				t.status !== filters.status
+			) {
+				return false;
+			}
+			return (
+				t.title.toLowerCase().includes(lowerQuery) ||
+				t.description.toLowerCase().includes(lowerQuery)
+			);
+		});
+
+		if (filters.limit !== undefined) {
+			results = results.slice(0, filters.limit);
+		}
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(results, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultStatusExecute: StatusExecute<never, string> = (options) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const allTasks = yield* repository.listTasks();
+		const today = new Date().toISOString().slice(0, 10);
+		const deferredPredicate = isDeferred(today);
+
+		const byStatus: Record<string, number> = {};
+		const byType: Record<string, number> = {};
+		let readyCount = 0;
+		let blockedCount = 0;
+		let inProgressCount = 0;
+
+		for (const task of allTasks) {
+			byStatus[task.status] = (byStatus[task.status] ?? 0) + 1;
+			byType[task.type] = (byType[task.type] ?? 0) + 1;
+
+			if (task.status === "in_progress") {
+				inProgressCount++;
+			}
+			if (
+				task.status !== "done" &&
+				task.status !== "dropped" &&
+				isBlocked(task, allTasks)
+			) {
+				blockedCount++;
+			}
+			if (
+				task.status === "active" &&
+				isUnblocked(task, allTasks) &&
+				!deferredPredicate(task)
+			) {
+				readyCount++;
+			}
+		}
+
+		const result = {
+			total: allTasks.length,
+			by_status: byStatus,
+			by_type: byType,
+			ready: readyCount,
+			blocked: blockedCount,
+			in_progress: inProgressCount,
+		};
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${formatOutput(result, options.pretty)}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
+const defaultPrimeExecute: PrimeExecute<never, string> = (options, full) =>
+	Effect.gen(function* () {
+		const repository = yield* TaskRepository;
+		const allTasks = yield* repository.listTasks();
+		const today = new Date().toISOString().slice(0, 10);
+		const deferredPredicate = isDeferred(today);
+
+		const groups: Record<string, typeof allTasks> = {};
+		for (const task of allTasks) {
+			const key = task.status;
+			if (groups[key] === undefined) groups[key] = [];
+			groups[key].push(task);
+		}
+
+		const lines: string[] = [];
+		lines.push("# Task Board\n");
+		lines.push(`Generated: ${today}\n`);
+
+		for (const [status, tasks] of Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))) {
+			lines.push(`## ${status} (${tasks.length})\n`);
+			for (const task of tasks) {
+				const flags: string[] = [];
+				if (isBlocked(task, allTasks)) flags.push("BLOCKED");
+				if (deferredPredicate(task)) flags.push("DEFERRED");
+				if (task.priority !== null) flags.push(`P${task.priority}`);
+				if (task.assignee !== null) flags.push(`@${task.assignee}`);
+				const flagStr = flags.length > 0 ? ` [${flags.join(", ")}]` : "";
+				lines.push(`- **${task.title}** (${task.id})${flagStr}`);
+				if (full && task.description.length > 0) {
+					lines.push(`  ${task.description}`);
+				}
+				if (full && task.blocked_by.length > 0) {
+					lines.push(`  Blocked by: ${task.blocked_by.join(", ")}`);
+				}
+			}
+			lines.push("");
+		}
+
+		yield* Effect.sync(() => {
+			process.stdout.write(`${lines.join("\n")}\n`);
+		});
+	}).pipe(Effect.provide(makeRepositoryLayer(options)));
+
 export const makeCli = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListTasksExecute<R, E> = noopListExecute as ListTasksExecute<
@@ -2768,6 +3624,18 @@ export const makeCli = <R, E>(
 	executeNext: NextTaskExecute<R, E> = noopNextExecute as NextTaskExecute<R, E>,
 	executeDrop: DropTaskExecute<R, E> = noopDropExecute as DropTaskExecute<R, E>,
 	executeToday: TodayExecute<R, E> = noopTodayExecute as TodayExecute<R, E>,
+	executeComments: (options: GlobalCliOptions) => Effect.Effect<void, E, R> = noopExecute as (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
+	executeCommentsList: CommentsListExecute<R, E> = noopCommentsListExecute as CommentsListExecute<R, E>,
+	executeCommentsAdd: CommentsAddExecute<R, E> = noopCommentsAddExecute as CommentsAddExecute<R, E>,
+	executeDep: (options: GlobalCliOptions) => Effect.Effect<void, E, R> = noopExecute as (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
+	executeDepAdd: DepAddExecute<R, E> = noopDepAddExecute as DepAddExecute<R, E>,
+	executeDepRemove: DepRemoveExecute<R, E> = noopDepRemoveExecute as DepRemoveExecute<R, E>,
+	executeDepList: DepListExecute<R, E> = noopDepListExecute as DepListExecute<R, E>,
+	executeReady: ReadyExecute<R, E> = noopReadyExecute as ReadyExecute<R, E>,
+	executeBlocked: BlockedExecute<R, E> = noopBlockedExecute as BlockedExecute<R, E>,
+	executeSearch: SearchExecute<R, E> = noopSearchExecute as SearchExecute<R, E>,
+	executeStatus: StatusExecute<R, E> = noopStatusExecute as StatusExecute<R, E>,
+	executePrime: PrimeExecute<R, E> = noopPrimeExecute as PrimeExecute<R, E>,
 ) =>
 	Command.run(
 		makeTasksCommand(
@@ -2808,6 +3676,18 @@ export const makeCli = <R, E>(
 			executeNext,
 			executeDrop,
 			executeToday,
+			executeComments,
+			executeCommentsList,
+			executeCommentsAdd,
+			executeDep,
+			executeDepAdd,
+			executeDepRemove,
+			executeDepList,
+			executeReady,
+			executeBlocked,
+			executeSearch,
+			executeStatus,
+			executePrime,
 		),
 		{
 			name: "Tashks CLI",
@@ -2853,6 +3733,18 @@ export const cli = makeCli(
 	defaultNextExecute,
 	defaultDropExecute,
 	defaultTodayExecute,
+	noopExecute,
+	defaultCommentsListExecute,
+	defaultCommentsAddExecute,
+	noopExecute,
+	defaultDepAddExecute,
+	defaultDepRemoveExecute,
+	defaultDepListExecute,
+	defaultReadyExecute,
+	defaultBlockedExecute,
+	defaultSearchExecute,
+	defaultStatusExecute,
+	defaultPrimeExecute,
 );
 
 export const runCli = (argv: ReadonlyArray<string> = process.argv) => cli(argv);

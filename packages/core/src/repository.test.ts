@@ -71,6 +71,13 @@ const baseTask = (): Task => ({
 	related: [],
 	is_template: false,
 	from_template: null,
+	priority: null,
+	type: "task",
+	assignee: null,
+	parent: null,
+	close_reason: null,
+	description: "",
+	comments: [],
 });
 
 const baseWorkLogEntry = (): WorkLogEntry => ({

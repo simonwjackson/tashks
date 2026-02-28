@@ -135,6 +135,11 @@ describe("list filter resolution", () => {
 			durationMax: Option.some(60),
 			context: Option.some("@home"),
 			staleDays: Option.some(7),
+			priority: Option.some(1),
+			type: Option.some("bug"),
+			assignee: Option.some("agent-1"),
+			unassigned: false,
+			parent: Option.some("parent-task"),
 		});
 
 		expect(filters).toEqual({
@@ -150,6 +155,10 @@ describe("list filter resolution", () => {
 			duration_max: 60,
 			context: "@home",
 			stale_days: 7,
+			priority: 1,
+			type: "bug",
+			assignee: "agent-1",
+			parent: "parent-task",
 		});
 	});
 
@@ -167,6 +176,11 @@ describe("list filter resolution", () => {
 			durationMax: Option.none(),
 			context: Option.none(),
 			staleDays: Option.none(),
+			priority: Option.none(),
+			type: Option.none(),
+			assignee: Option.none(),
+			unassigned: false,
+			parent: Option.none(),
 		});
 
 		expect(filters).toEqual({});
@@ -193,6 +207,11 @@ describe("create input resolution", () => {
 			related: Option.some("task-1,task-2"),
 			blockedBy: Option.some("blocker-1,blocker-2"),
 			subtasks: Option.some("Buy milk,Call vet"),
+			priority: Option.some(1),
+			type: Option.some("bug"),
+			assignee: Option.some("agent-1"),
+			parent: Option.some("parent-task"),
+			description: Option.some("Fix the server"),
 		});
 
 		expect(input).toEqual({
@@ -216,6 +235,11 @@ describe("create input resolution", () => {
 				{ text: "Buy milk", done: false },
 				{ text: "Call vet", done: false },
 			],
+			priority: 1,
+			type: "bug",
+			assignee: "agent-1",
+			parent: "parent-task",
+			description: "Fix the server",
 		});
 	});
 
@@ -238,6 +262,11 @@ describe("create input resolution", () => {
 			related: Option.none(),
 			blockedBy: Option.none(),
 			subtasks: Option.none(),
+			priority: Option.none(),
+			type: Option.none(),
+			assignee: Option.none(),
+			parent: Option.none(),
+			description: Option.none(),
 		});
 
 		expect(input).toEqual({
@@ -265,6 +294,12 @@ describe("update patch resolution", () => {
 			duration: Option.some(90),
 			related: Option.some("task-a,task-b"),
 			blockedBy: Option.some("dep-1,dep-2"),
+			priority: Option.some(2),
+			type: Option.some("feature"),
+			assignee: Option.some("agent-2"),
+			parent: Option.some("parent-id"),
+			description: Option.some("Updated desc"),
+			claim: false,
 		});
 
 		expect(patch).toEqual({
@@ -284,6 +319,11 @@ describe("update patch resolution", () => {
 			estimated_minutes: 90,
 			related: ["task-a", "task-b"],
 			blocked_by: ["dep-1", "dep-2"],
+			priority: 2,
+			type: "feature",
+			assignee: "agent-2",
+			parent: "parent-id",
+			description: "Updated desc",
 		});
 	});
 
@@ -305,6 +345,12 @@ describe("update patch resolution", () => {
 			duration: Option.none(),
 			related: Option.none(),
 			blockedBy: Option.none(),
+			priority: Option.none(),
+			type: Option.none(),
+			assignee: Option.none(),
+			parent: Option.none(),
+			description: Option.none(),
+			claim: false,
 		});
 
 		expect(patch).toEqual({});
@@ -2033,5 +2079,284 @@ describe("template cli parsing", () => {
 			status: "active",
 			projects: ["ops"],
 		});
+	});
+});
+
+describe("cli new subcommands smoke", () => {
+	it("comments list/add round-trip against a real data directory", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-cli-comments-"));
+
+		try {
+			const created = (await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Comment test task",
+			])) as Record<string, unknown>;
+			const id = created.id as string;
+
+			const emptyComments = (await runDefaultCliJson([
+				"comments",
+				"list",
+				"--data-dir",
+				dataDir,
+				"--id",
+				id,
+			])) as Array<unknown>;
+			expect(emptyComments).toEqual([]);
+
+			const afterAdd = (await runDefaultCliJson([
+				"comments",
+				"add",
+				"--data-dir",
+				dataDir,
+				"--id",
+				id,
+				"--text",
+				"First comment",
+				"--author",
+				"tester",
+			])) as Array<Record<string, unknown>>;
+			expect(afterAdd).toHaveLength(1);
+			expect(afterAdd[0]?.text).toBe("First comment");
+			expect(afterAdd[0]?.author).toBe("tester");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("dep add/list/remove round-trip against a real data directory", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-cli-dep-"));
+
+		try {
+			const taskA = (await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Task A",
+			])) as Record<string, unknown>;
+			const taskB = (await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Task B",
+			])) as Record<string, unknown>;
+			const idA = taskA.id as string;
+			const idB = taskB.id as string;
+
+			const addResult = (await runDefaultCliJson([
+				"dep",
+				"add",
+				"--data-dir",
+				dataDir,
+				"--id",
+				idB,
+				"--depends-on",
+				idA,
+			])) as Array<string>;
+			expect(addResult).toContain(idA);
+
+			const listResult = (await runDefaultCliJson([
+				"dep",
+				"list",
+				"--data-dir",
+				dataDir,
+				"--id",
+				idB,
+			])) as Array<string>;
+			expect(listResult).toContain(idA);
+
+			const removeResult = (await runDefaultCliJson([
+				"dep",
+				"remove",
+				"--data-dir",
+				dataDir,
+				"--id",
+				idB,
+				"--depends-on",
+				idA,
+			])) as Array<string>;
+			expect(removeResult).toEqual([]);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("ready returns unblocked active tasks sorted by priority", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-cli-ready-"));
+
+		try {
+			await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Low priority",
+				"--priority",
+				"3",
+			]);
+			await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"High priority",
+				"--priority",
+				"0",
+			]);
+
+			const ready = (await runDefaultCliJson([
+				"ready",
+				"--data-dir",
+				dataDir,
+			])) as Array<Record<string, unknown>>;
+
+			expect(ready).toHaveLength(2);
+			expect(ready[0]?.title).toBe("High priority");
+			expect(ready[1]?.title).toBe("Low priority");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("blocked returns tasks with unresolved blockers", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-cli-blocked-"));
+
+		try {
+			const blocker = (await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Blocker task",
+			])) as Record<string, unknown>;
+			const blockerId = blocker.id as string;
+
+			await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Blocked task",
+				"--blocked-by",
+				blockerId,
+			]);
+
+			const blocked = (await runDefaultCliJson([
+				"blocked",
+				"--data-dir",
+				dataDir,
+			])) as Array<Record<string, unknown>>;
+
+			expect(blocked).toHaveLength(1);
+			expect(blocked[0]?.title).toBe("Blocked task");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("search finds tasks by title substring", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-cli-search-"));
+
+		try {
+			await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Fix authentication bug",
+			]);
+			await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Add logging",
+			]);
+
+			const results = (await runDefaultCliJson([
+				"search",
+				"--data-dir",
+				dataDir,
+				"--query",
+				"auth",
+			])) as Array<Record<string, unknown>>;
+
+			expect(results).toHaveLength(1);
+			expect(results[0]?.title).toBe("Fix authentication bug");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("status returns aggregated counts", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-cli-status-"));
+
+		try {
+			await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Task one",
+			]);
+			await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Task two",
+			]);
+
+			const status = (await runDefaultCliJson([
+				"status",
+				"--data-dir",
+				dataDir,
+			])) as Record<string, unknown>;
+
+			expect(status.total).toBe(2);
+			expect(status.by_status).toEqual({ active: 2 });
+			expect(status.by_type).toEqual({ task: 2 });
+			expect(status.ready).toBe(2);
+			expect(status.blocked).toBe(0);
+			expect(status.in_progress).toBe(0);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("prime generates markdown output", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tasks-cli-prime-"));
+
+		try {
+			await runDefaultCliJson([
+				"create",
+				"--data-dir",
+				dataDir,
+				"--title",
+				"Prime test task",
+			]);
+
+			const { stdout } = await captureStdout(() =>
+				Effect.runPromise(
+					cli([
+						"bun",
+						"cli.ts",
+						"prime",
+						"--data-dir",
+						dataDir,
+					]).pipe(Effect.provide(NodeContext.layer)),
+				),
+			);
+
+			expect(stdout).toContain("# Task Board");
+			expect(stdout).toContain("Prime test task");
+			expect(stdout).toContain("## active");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
 	});
 });

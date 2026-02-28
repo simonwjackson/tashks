@@ -523,6 +523,22 @@ export const listAreas = (
 	return Array.from(areas).sort();
 };
 
+export const byPriorityAsc = (a: Task, b: Task): number => {
+	if (a.priority === null && b.priority === null) {
+		return 0;
+	}
+
+	if (a.priority === null) {
+		return 1;
+	}
+
+	if (b.priority === null) {
+		return -1;
+	}
+
+	return a.priority - b.priority;
+};
+
 export const byUrgencyDesc = (a: Task, b: Task): number => {
 	const urgencyRanks: Record<string, number> = { low: 0, medium: 1, high: 2 };
 	const aRank = urgencyRanks[a.urgency] ?? -1;
