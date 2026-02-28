@@ -8,6 +8,7 @@ export { dep } from "./dep.js";
 export { comments } from "./comments.js";
 export { status } from "./status.js";
 export { prime } from "./prime.js";
+export { deleteTool } from "./delete.js";
 
 import { ready } from "./ready.js";
 import { create } from "./create.js";
@@ -19,5 +20,6 @@ import { dep } from "./dep.js";
 import { comments } from "./comments.js";
 import { status } from "./status.js";
 import { prime } from "./prime.js";
+import { deleteTool } from "./delete.js";
 
-export const allTools = [ready, create, update, show, close, list, dep, comments, status, prime] as const;
+export const allTools = [ready, create, update, show, close, list, dep, comments, status, prime, deleteTool] as const;

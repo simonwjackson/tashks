@@ -35,6 +35,6 @@ Use \`tashks_comments\` to record progress notes, decisions, or blockers on task
 
 ### Prohibited
 
-- NEVER use the TodoWrite tool or create markdown TODO lists
+- NEVER create markdown TODO lists
 - NEVER start implementation without first creating a tashks task
 `;

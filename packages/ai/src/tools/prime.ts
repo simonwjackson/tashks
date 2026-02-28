@@ -2,7 +2,7 @@ import type { TaskRepositoryService } from "@tashks/core/repository";
 import { isBlocked, byPriorityAsc, byUrgencyDesc, byCreatedAsc } from "@tashks/core/query";
 import * as Effect from "effect/Effect";
 import type { ToolDefinition, ToolResult } from "../types.js";
-import { WORKFLOW_PREAMBLE } from "../preamble.js";
+import { toolError } from "../errors.js";
 import { fmtTaskOneLiner } from "../format.js";
 
 export type PrimeParams = Record<string, never>;
@@ -19,7 +19,6 @@ async function execute(_params: PrimeParams, repo: TaskRepositoryService): Promi
 		ready.sort((a, b) => byPriorityAsc(a, b) || byUrgencyDesc(a, b) || byCreatedAsc(a, b));
 
 		const lines: string[] = [];
-		lines.push(WORKFLOW_PREAMBLE);
 		lines.push("## Task Board\n");
 		lines.push(`Total: ${allTasks.length} | Active: ${active.length} | Ready: ${ready.length} | Blocked: ${blocked.length} | Deferred: ${deferred.length} | Done: ${done.length}\n`);
 
@@ -68,7 +67,7 @@ async function execute(_params: PrimeParams, repo: TaskRepositoryService): Promi
 			},
 		};
 	} catch (e) {
-		return { text: `Error: ${String(e)}` };
+		return toolError(e);
 	}
 }
 

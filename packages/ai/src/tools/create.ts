@@ -2,6 +2,7 @@ import type { TaskRepositoryService } from "@tashks/core/repository";
 import type { TaskCreateInput } from "@tashks/core/schema";
 import * as Effect from "effect/Effect";
 import type { ToolDefinition, ToolResult } from "../types.js";
+import { toolError } from "../errors.js";
 
 export interface CreateParams {
 	title: string;
@@ -31,7 +32,7 @@ async function execute(params: CreateParams, repo: TaskRepositoryService): Promi
 		const task = await Effect.runPromise(repo.createTask(input));
 		return { text: JSON.stringify(task, null, 2), data: task };
 	} catch (e) {
-		return { text: `Error: ${String(e)}` };
+		return toolError(e);
 	}
 }
 

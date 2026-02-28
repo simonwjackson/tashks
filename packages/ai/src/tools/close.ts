@@ -1,6 +1,7 @@
 import type { TaskRepositoryService } from "@tashks/core/repository";
 import * as Effect from "effect/Effect";
 import type { ToolDefinition, ToolResult } from "../types.js";
+import { toolError } from "../errors.js";
 
 export interface CloseParams {
 	id: string;
@@ -15,7 +16,7 @@ async function execute(params: CloseParams, repo: TaskRepositoryService): Promis
 		const task = await Effect.runPromise(repo.completeTask(params.id));
 		return { text: JSON.stringify(task, null, 2), data: task };
 	} catch (e) {
-		return { text: `Error: ${String(e)}` };
+		return toolError(e);
 	}
 }
 

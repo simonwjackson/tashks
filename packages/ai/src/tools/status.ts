@@ -2,6 +2,7 @@ import type { TaskRepositoryService } from "@tashks/core/repository";
 import { isBlocked } from "@tashks/core/query";
 import * as Effect from "effect/Effect";
 import type { ToolDefinition, ToolResult } from "../types.js";
+import { toolError } from "../errors.js";
 
 export type StatusParams = Record<string, never>;
 
@@ -28,7 +29,7 @@ async function execute(_params: StatusParams, repo: TaskRepositoryService): Prom
 		};
 		return { text: JSON.stringify(data, null, 2), data };
 	} catch (e) {
-		return { text: `Error: ${String(e)}` };
+		return toolError(e);
 	}
 }
 

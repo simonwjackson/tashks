@@ -1,6 +1,7 @@
 import type { TaskRepositoryService } from "@tashks/core/repository";
 import * as Effect from "effect/Effect";
 import type { ToolDefinition, ToolResult } from "../types.js";
+import { toolError } from "../errors.js";
 
 export interface CommentsParams {
 	action: "list" | "add";
@@ -12,11 +13,11 @@ export interface CommentsParams {
 async function execute(params: CommentsParams, repo: TaskRepositoryService): Promise<ToolResult> {
 	try {
 		if (params.action === "add") {
-			if (!params.text) return { text: "Error: text required for add" };
+			if (!params.text) return { text: "Error: text required for add", error: { code: "VALIDATION", message: "text required for add" } };
 			const task = await Effect.runPromise(repo.getTask(params.id));
 			const comments = [
 				...task.comments,
-				{ text: params.text, author: params.author ?? "agent", created: new Date().toISOString() },
+				{ text: params.text, author: params.author ?? "agent", created: new Date().toISOString().slice(0, 10) },
 			];
 			const updated = await Effect.runPromise(repo.updateTask(params.id, { comments }));
 			return { text: JSON.stringify(updated.comments, null, 2), data: updated.comments };
@@ -24,7 +25,7 @@ async function execute(params: CommentsParams, repo: TaskRepositoryService): Pro
 		const task = await Effect.runPromise(repo.getTask(params.id));
 		return { text: JSON.stringify(task.comments, null, 2), data: task.comments };
 	} catch (e) {
-		return { text: `Error: ${String(e)}` };
+		return toolError(e);
 	}
 }
 

@@ -1,6 +1,7 @@
 import type { TaskRepositoryService, ListTasksFilters } from "@tashks/core/repository";
 import * as Effect from "effect/Effect";
 import type { ToolDefinition, ToolResult } from "../types.js";
+import { toolError } from "../errors.js";
 
 export interface ListParams {
 	query?: string;
@@ -40,7 +41,7 @@ async function execute(params: ListParams, repo: TaskRepositoryService): Promise
 		if (params.limit) tasks = tasks.slice(0, params.limit);
 		return { text: JSON.stringify(tasks, null, 2), data: tasks };
 	} catch (e) {
-		return { text: `Error: ${String(e)}` };
+		return toolError(e);
 	}
 }
 

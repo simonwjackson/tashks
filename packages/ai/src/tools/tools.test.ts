@@ -12,6 +12,7 @@ import { dep } from "./dep.js";
 import { comments } from "./comments.js";
 import { status } from "./status.js";
 import { prime } from "./prime.js";
+import { deleteTool } from "./delete.js";
 import { allTools } from "./index.js";
 
 const makeTask = (
@@ -101,8 +102,8 @@ function makeMockRepo(opts: {
 // ── allTools ──────────────────────────────────────────────────────────
 
 describe("allTools", () => {
-	it("exports 10 tools", () => {
-		expect(allTools).toHaveLength(10);
+	it("exports 11 tools", () => {
+		expect(allTools).toHaveLength(11);
 	});
 
 	it("each tool has required shape", () => {
@@ -177,7 +178,7 @@ describe("tashks_update", () => {
 		await update.execute({ id: "t1", claim: true, assignee: "agent" }, repo);
 		expect(capturedPatch).not.toBeNull();
 		expect((capturedPatch as any).assignee).toBe("agent");
-		expect((capturedPatch as any).status).toBe("active");
+		expect((capturedPatch as any).status).toBe("in_progress");
 	});
 
 	it("does not set status when claim is true even if status is provided", async () => {
@@ -191,8 +192,24 @@ describe("tashks_update", () => {
 			},
 		});
 		await update.execute({ id: "t1", claim: true, status: "done" }, repo);
-		// claim overrides: status should be "active", not "done"
-		expect((capturedPatch as any).status).toBe("active");
+		// claim overrides: status should be "in_progress", not "done"
+		expect((capturedPatch as any).status).toBe("in_progress");
+	});
+
+	it("claim without assignee defaults to agent", async () => {
+		let capturedPatch: TaskPatch | null = null;
+		const tasks = [makeTask({ id: "t1", title: "Task 1" })];
+		const repo = makeMockRepo({
+			tasks,
+			onUpdateTask: (_id, patch) => {
+				capturedPatch = patch;
+				return makeTask({ id: "t1", title: "Task 1", ...patch } as any);
+			},
+		});
+		await update.execute({ id: "t1", claim: true }, repo);
+		expect(capturedPatch).not.toBeNull();
+		expect((capturedPatch as any).assignee).toBe("agent");
+		expect((capturedPatch as any).status).toBe("in_progress");
 	});
 });
 
@@ -353,10 +370,12 @@ describe("tashks_dep", () => {
 		expect(data[0].id).toBe("blocked");
 	});
 
-	it("add: returns error when missing params", async () => {
+	it("add: returns structured error when missing params", async () => {
 		const repo = makeMockRepo({});
 		const result = await dep.execute({ action: "add" }, repo);
 		expect(result.text).toStartWith("Error:");
+		expect(result.error).toBeDefined();
+		expect(result.error!.code).toBe("VALIDATION");
 	});
 });
 
@@ -388,11 +407,31 @@ describe("tashks_comments", () => {
 		expect(data[0].text).toBe("hello");
 	});
 
-	it("add: returns error when text missing", async () => {
+	it("add: returns structured error when text missing", async () => {
 		const tasks = [makeTask({ id: "t1", title: "A" })];
 		const repo = makeMockRepo({ tasks });
 		const result = await comments.execute({ action: "add", id: "t1" }, repo);
 		expect(result.text).toStartWith("Error:");
+		expect(result.error).toBeDefined();
+		expect(result.error!.code).toBe("VALIDATION");
+		expect(result.error!.message).toContain("text required for add");
+	});
+
+	it("add: uses date-only format for created field", async () => {
+		let capturedPatch: any = null;
+		const tasks = [makeTask({ id: "t1", title: "A", comments: [] })];
+		const repo = makeMockRepo({
+			tasks,
+			onUpdateTask: (_id, patch) => {
+				capturedPatch = patch;
+				return makeTask({ id: "t1", title: "A", comments: patch.comments as any });
+			},
+		});
+		await comments.execute({ action: "add", id: "t1", text: "test" }, repo);
+		const created = capturedPatch.comments[0].created;
+		// Date-only: YYYY-MM-DD (10 chars, no T)
+		expect(created).toHaveLength(10);
+		expect(created).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 	});
 });
 
@@ -421,7 +460,7 @@ describe("tashks_status", () => {
 // ── prime ─────────────────────────────────────────────────────────────
 
 describe("tashks_prime", () => {
-	it("generates markdown with preamble and sections", async () => {
+	it("generates markdown with board summary sections (no preamble)", async () => {
 		const tasks = [
 			makeTask({ id: "ready1", title: "Ready Task", priority: 1 }),
 			makeTask({ id: "blocked1", title: "Blocked Task", blocked_by: ["ready1"] }),
@@ -430,7 +469,7 @@ describe("tashks_prime", () => {
 		];
 		const repo = makeMockRepo({ tasks });
 		const result = await prime.execute({} as any, repo);
-		expect(result.text).toContain("## Task Tracking Rules");
+		expect(result.text).not.toContain("## Task Tracking Rules");
 		expect(result.text).toContain("## Task Board");
 		expect(result.text).toContain("### Ready");
 		expect(result.text).toContain("### Blocked");
@@ -456,4 +495,47 @@ describe("tashks_prime", () => {
 		expect(result.text).not.toContain("### Deferred");
 		expect(result.text).not.toContain("### Recently Done");
 	});
+
+// ── delete ────────────────────────────────────────────────────────────
+
+describe("tashks_delete", () => {
+	it("deletes a task and returns confirmation", async () => {
+		const tasks = [makeTask({ id: "t1", title: "Delete me" })];
+		const repo = makeMockRepo({ tasks });
+		const result = await deleteTool.execute({ id: "t1" }, repo);
+		expect(result.text).toContain("Deleted task t1");
+		expect(result.data).toEqual({ deleted: true, id: "t1" });
+	});
+
+	it("returns structured error on failure", async () => {
+		const repo = makeMockRepo({});
+		(repo as any).deleteTask = () => Effect.fail("Task not found: missing");
+		const result = await deleteTool.execute({ id: "missing" }, repo);
+		expect(result.text).toStartWith("Error:");
+		expect(result.error).toBeDefined();
+		expect(result.error!.code).toBe("NOT_FOUND");
+		expect(result.error!.message).toContain("not found");
+	});
+});
+
+// ── structured errors ────────────────────────────────────────────────
+
+describe("structured errors", () => {
+	it("ready returns structured error on failure", async () => {
+		const repo = makeMockRepo({});
+		(repo as any).listTasks = () => Effect.fail("db down");
+		const result = await ready.execute({}, repo);
+		expect(result.text).toStartWith("Error:");
+		expect(result.error).toBeDefined();
+		expect(result.error!.code).toBe("UNKNOWN");
+		expect(result.error!.message).toContain("db down");
+	});
+
+	it("show returns NOT_FOUND for missing task", async () => {
+		const repo = makeMockRepo({ tasks: [] });
+		const result = await show.execute({ id: "missing" }, repo);
+		expect(result.error).toBeDefined();
+		expect(result.error!.code).toBe("NOT_FOUND");
+	});
+});
 });

@@ -2,6 +2,7 @@ import type { TaskRepositoryService } from "@tashks/core/repository";
 import type { TaskPatch } from "@tashks/core/schema";
 import * as Effect from "effect/Effect";
 import type { ToolDefinition, ToolResult } from "../types.js";
+import { toolError } from "../errors.js";
 
 export interface UpdateParams {
 	id: string;
@@ -21,7 +22,7 @@ export interface UpdateParams {
 async function execute(params: UpdateParams, repo: TaskRepositoryService): Promise<ToolResult> {
 	try {
 		const patch: TaskPatch = {
-			...(params.claim && { assignee: params.assignee ?? null, status: "active" as const }),
+			...(params.claim && { assignee: params.assignee ?? "agent", status: "in_progress" as const }),
 			...(params.title && { title: params.title }),
 			...(params.status && !params.claim && { status: params.status }),
 			...(params.priority != null && { priority: params.priority }),
@@ -36,7 +37,7 @@ async function execute(params: UpdateParams, repo: TaskRepositoryService): Promi
 		const task = await Effect.runPromise(repo.updateTask(params.id, patch));
 		return { text: JSON.stringify(task, null, 2), data: task };
 	} catch (e) {
-		return { text: `Error: ${String(e)}` };
+		return toolError(e);
 	}
 }
 
@@ -57,7 +58,7 @@ export const update: ToolDefinition<UpdateParams> = {
 			blocked_by: { type: "array", items: { type: "string" }, description: "Replace blocked_by list" },
 			estimated_minutes: { type: "number", description: "Time estimate in minutes" },
 			close_reason: { type: "string", description: "Reason for closing" },
-			claim: { type: "boolean", description: "Atomically claim (set assignee + active)" },
+			claim: { type: "boolean", description: "Atomically claim (set assignee + in_progress)" },
 		},
 		required: ["id"],
 	},

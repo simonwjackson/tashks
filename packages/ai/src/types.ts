@@ -6,6 +6,8 @@ export interface ToolResult {
 	text: string;
 	/** Structured data for programmatic consumers (optional) */
 	data?: unknown;
+	/** Structured error for programmatic consumers (optional) */
+	error?: { code: string; message: string };
 }
 
 export interface ToolDefinition<P = Record<string, unknown>> {

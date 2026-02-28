@@ -2,6 +2,7 @@ import type { TaskRepositoryService } from "@tashks/core/repository";
 import { isBlocked, buildDependencyChain } from "@tashks/core/query";
 import * as Effect from "effect/Effect";
 import type { ToolDefinition, ToolResult } from "../types.js";
+import { toolError } from "../errors.js";
 
 export interface DepParams {
 	action: "add" | "remove" | "tree" | "blocked";
@@ -13,7 +14,7 @@ async function execute(params: DepParams, repo: TaskRepositoryService): Promise<
 	try {
 		switch (params.action) {
 			case "add": {
-				if (!params.id || !params.depends_on) return { text: "Error: id and depends_on required for add" };
+				if (!params.id || !params.depends_on) return { text: "Error: id and depends_on required for add", error: { code: "VALIDATION", message: "id and depends_on required for add" } };
 				const task = await Effect.runPromise(repo.getTask(params.id));
 				const blockedBy = [...task.blocked_by];
 				if (!blockedBy.includes(params.depends_on)) blockedBy.push(params.depends_on);
@@ -21,14 +22,14 @@ async function execute(params: DepParams, repo: TaskRepositoryService): Promise<
 				return { text: JSON.stringify(updated, null, 2), data: updated };
 			}
 			case "remove": {
-				if (!params.id || !params.depends_on) return { text: "Error: id and depends_on required for remove" };
+				if (!params.id || !params.depends_on) return { text: "Error: id and depends_on required for remove", error: { code: "VALIDATION", message: "id and depends_on required for remove" } };
 				const task = await Effect.runPromise(repo.getTask(params.id));
 				const blockedBy = task.blocked_by.filter((id) => id !== params.depends_on);
 				const updated = await Effect.runPromise(repo.updateTask(params.id, { blocked_by: blockedBy }));
 				return { text: JSON.stringify(updated, null, 2), data: updated };
 			}
 			case "tree": {
-				if (!params.id) return { text: "Error: id required for tree" };
+				if (!params.id) return { text: "Error: id required for tree", error: { code: "VALIDATION", message: "id required for tree" } };
 				const allTasks = await Effect.runPromise(repo.listTasks({}));
 				const chain = buildDependencyChain(params.id, allTasks);
 				return { text: JSON.stringify(chain, null, 2), data: chain };
@@ -40,7 +41,7 @@ async function execute(params: DepParams, repo: TaskRepositoryService): Promise<
 			}
 		}
 	} catch (e) {
-		return { text: `Error: ${String(e)}` };
+		return toolError(e);
 	}
 }
 

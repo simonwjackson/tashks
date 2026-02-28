@@ -1,6 +1,7 @@
 import type { TaskRepositoryService } from "@tashks/core/repository";
 import * as Effect from "effect/Effect";
 import type { ToolDefinition, ToolResult } from "../types.js";
+import { toolError } from "../errors.js";
 
 export interface ShowParams {
 	id: string;
@@ -11,7 +12,7 @@ async function execute(params: ShowParams, repo: TaskRepositoryService): Promise
 		const task = await Effect.runPromise(repo.getTask(params.id));
 		return { text: JSON.stringify(task, null, 2), data: task };
 	} catch (e) {
-		return { text: `Error: ${String(e)}` };
+		return toolError(e);
 	}
 }
 
