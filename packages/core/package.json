@@ -1,6 +1,6 @@
 {
 	"name": "@tashks/core",
-	"version": "0.2.3",
+	"version": "0.3.0",
 	"type": "module",
 	"description": "Personal task management library — YAML files on disk, Effect ecosystem",
 	"main": "dist/src/repository.js",

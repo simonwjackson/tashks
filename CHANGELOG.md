@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.0 (2026-02-28)
+
+### Features
+- Add agent coordination fields and subcommands (41380a9)
+
+
 ## v0.2.3 (2026-02-27)
 
 ### Fixes
