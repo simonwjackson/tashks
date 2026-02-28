@@ -45,9 +45,10 @@ jobs:
         run: |
           CORE_VERSION=$(node -p "require('./packages/core/package.json').version")
           sed -i "s/\"workspace:\*\"/\"^${CORE_VERSION}\"/" packages/cli/package.json
+          sed -i "s/\"workspace:\*\"/\"^${CORE_VERSION}\"/" packages/ai/package.json
       - name: Fix package.json validation issues
         run: |
-          for pkg in core cli; do
+          for pkg in core cli ai; do
             (cd "packages/${pkg}" && npm pkg fix)
           done
       - name: Publish @tashks/core
@@ -59,6 +60,13 @@ jobs:
           }
       - name: Publish @tashks/cli
         working-directory: packages/cli
+        run: |
+          set -o pipefail
+          npm publish --provenance --access public --ignore-scripts 2>&1 | tee /tmp/npm-out.log || {
+            grep -q 'You cannot publish over the previously published versions' /tmp/npm-out.log && echo "Already published, skipping" || exit 1
+          }
+      - name: Publish @tashks/ai
+        working-directory: packages/ai
         run: |
           set -o pipefail
           npm publish --provenance --access public --ignore-scripts 2>&1 | tee /tmp/npm-out.log || {

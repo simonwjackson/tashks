@@ -114,7 +114,7 @@ console.log(`Bumping ${current} -> ${next}`);
 
 // --- Update all package.json files ---
 
-const packages = ["core", "cli"];
+const packages = ["core", "cli", "ai"];
 for (const pkg of packages) {
 	const pkgPath = join(root, `packages/${pkg}/package.json`);
 	const content = readFileSync(pkgPath, "utf-8");

@@ -1,0 +1,46 @@
+{
+	"name": "@tashks/ai",
+	"version": "0.1.0",
+	"type": "module",
+	"description": "Portable AI agent tool definitions for tashks task management",
+	"main": "dist/src/index.js",
+	"types": "dist/src/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/src/index.d.ts",
+			"import": "./dist/src/index.js"
+		},
+		"./preamble": {
+			"types": "./dist/src/preamble.d.ts",
+			"import": "./dist/src/preamble.js"
+		}
+	},
+	"files": [
+		"dist",
+		"LICENSE"
+	],
+	"license": "MIT",
+	"author": "Simon W. Jackson",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/simonwjackson/tashks.git",
+		"directory": "packages/ai"
+	},
+	"engines": {
+		"node": ">=18"
+	},
+	"sideEffects": false,
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@tashks/core": "workspace:*"
+	},
+	"peerDependencies": {
+		"effect": "^3.0.0"
+	}
+}
