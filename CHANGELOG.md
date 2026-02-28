@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.0 (2026-02-28)
+
+### Features
+- Add @tashks/ai package — portable tool definitions for AI agents (734ea80)
+
+
 ## v0.3.0 (2026-02-28)
 
 ### Features
