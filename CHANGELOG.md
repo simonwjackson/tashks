@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.0 (2026-02-28)
+
+### Features
+- Fix claim behavior, structured errors, delete tool, decouple preamble (a6124fb)
+
+### Other
+- Add // @tashks/ai types comment (0041aad)
+
+
 ## v0.4.0 (2026-02-28)
 
 ### Features
