@@ -10,6 +10,7 @@ import {
 	defaultDataDir,
 	formatOutput,
 	makeCli,
+	mergeGlobalOptionsInput,
 	resolveCreateTaskInput,
 	resolveCreateWorkLogInput,
 	resolveCreateProjectInput,
@@ -2355,6 +2356,206 @@ describe("cli new subcommands smoke", () => {
 			expect(stdout).toContain("# Task Board");
 			expect(stdout).toContain("Prime test task");
 			expect(stdout).toContain("## active");
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("mergeGlobalOptionsInput", () => {
+	it("child option overrides parent", () => {
+		const merged = mergeGlobalOptionsInput(
+			{
+				dataDir: Option.some("/child"),
+				tasksFile: Option.none(),
+				worklogFile: Option.none(),
+				pretty: false,
+			},
+			{
+				dataDir: Option.some("/parent"),
+				tasksFile: Option.some("/parent/tasks.yaml"),
+				worklogFile: Option.some("/parent/worklog.yaml"),
+				pretty: true,
+			},
+		);
+		expect(Option.getOrNull(merged.dataDir)).toBe("/child");
+		expect(Option.getOrNull(merged.tasksFile)).toBe("/parent/tasks.yaml");
+		expect(Option.getOrNull(merged.worklogFile)).toBe("/parent/worklog.yaml");
+		expect(merged.pretty).toBe(true);
+	});
+
+	it("falls back to parent when child has none", () => {
+		const merged = mergeGlobalOptionsInput(
+			{
+				dataDir: Option.none(),
+				tasksFile: Option.none(),
+				worklogFile: Option.none(),
+				pretty: false,
+			},
+			{
+				dataDir: Option.some("/parent"),
+				tasksFile: Option.some("/parent/tasks.yaml"),
+				worklogFile: Option.none(),
+				pretty: false,
+			},
+		);
+		expect(Option.getOrNull(merged.dataDir)).toBe("/parent");
+		expect(Option.getOrNull(merged.tasksFile)).toBe("/parent/tasks.yaml");
+		expect(Option.isNone(merged.worklogFile)).toBe(true);
+		expect(merged.pretty).toBe(false);
+	});
+
+	it("pretty is true when either child or parent is true", () => {
+		const merged1 = mergeGlobalOptionsInput(
+			{ dataDir: Option.none(), tasksFile: Option.none(), worklogFile: Option.none(), pretty: true },
+			{ dataDir: Option.none(), tasksFile: Option.none(), worklogFile: Option.none(), pretty: false },
+		);
+		expect(merged1.pretty).toBe(true);
+
+		const merged2 = mergeGlobalOptionsInput(
+			{ dataDir: Option.none(), tasksFile: Option.none(), worklogFile: Option.none(), pretty: false },
+			{ dataDir: Option.none(), tasksFile: Option.none(), worklogFile: Option.none(), pretty: true },
+		);
+		expect(merged2.pretty).toBe(true);
+	});
+});
+
+describe("parent option propagation (--tasks-file before subcommand)", () => {
+	it("global option before subcommand propagates to create handler", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tashks-parent-opts-"));
+		const tasksFile = join(dataDir, "custom-tasks.yaml");
+		try {
+			let capturedOptions: GlobalCliOptions | null = null;
+			const testCli = makeCli(
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				(options: GlobalCliOptions, _input: unknown) => {
+					capturedOptions = options;
+					return Effect.void;
+				},
+			);
+			await Effect.runPromise(
+				testCli([
+					"bun",
+					"cli.ts",
+					"--tasks-file",
+					tasksFile,
+					"create",
+					"--title",
+					"test",
+				]).pipe(Effect.provide(NodeContext.layer)),
+			);
+			expect(capturedOptions).not.toBeNull();
+			expect(capturedOptions!.tasksFile).toBe(tasksFile);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("global option after subcommand still works", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tashks-parent-opts-"));
+		const tasksFile = join(dataDir, "custom-tasks.yaml");
+		try {
+			let capturedOptions: GlobalCliOptions | null = null;
+			const testCli = makeCli(
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				(options: GlobalCliOptions, _input: unknown) => {
+					capturedOptions = options;
+					return Effect.void;
+				},
+			);
+			await Effect.runPromise(
+				testCli([
+					"bun",
+					"cli.ts",
+					"create",
+					"--tasks-file",
+					tasksFile,
+					"--title",
+					"test",
+				]).pipe(Effect.provide(NodeContext.layer)),
+			);
+			expect(capturedOptions).not.toBeNull();
+			expect(capturedOptions!.tasksFile).toBe(tasksFile);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("subcommand option overrides parent option", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tashks-parent-opts-"));
+		const parentFile = join(dataDir, "parent-tasks.yaml");
+		const childFile = join(dataDir, "child-tasks.yaml");
+		try {
+			let capturedOptions: GlobalCliOptions | null = null;
+			const testCli = makeCli(
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				(options: GlobalCliOptions, _input: unknown) => {
+					capturedOptions = options;
+					return Effect.void;
+				},
+			);
+			await Effect.runPromise(
+				testCli([
+					"bun",
+					"cli.ts",
+					"--tasks-file",
+					parentFile,
+					"create",
+					"--tasks-file",
+					childFile,
+					"--title",
+					"test",
+				]).pipe(Effect.provide(NodeContext.layer)),
+			);
+			expect(capturedOptions).not.toBeNull();
+			expect(capturedOptions!.tasksFile).toBe(childFile);
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("--data-dir before nested subcommand propagates through", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "tashks-parent-opts-"));
+		try {
+			let capturedOptions: GlobalCliOptions | null = null;
+			const testCli = makeCli(
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				undefined as never,
+				(options: GlobalCliOptions, _filters: unknown) => {
+					capturedOptions = options;
+					return Effect.void;
+				},
+			);
+			await Effect.runPromise(
+				testCli([
+					"bun",
+					"cli.ts",
+					"--data-dir",
+					dataDir,
+					"worklog",
+					"list",
+				]).pipe(Effect.provide(NodeContext.layer)),
+			);
+			expect(capturedOptions).not.toBeNull();
+			expect(capturedOptions!.dataDir).toBe(dataDir);
+			expect(capturedOptions!.tasksFile).toBe(join(dataDir, "tasks.yaml"));
+			expect(capturedOptions!.worklogFile).toBe(join(dataDir, "work-log.yaml"));
 		} finally {
 			await rm(dataDir, { recursive: true, force: true });
 		}

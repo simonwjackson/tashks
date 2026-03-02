@@ -29,6 +29,7 @@ import {
 	listContexts,
 	loadPerspectiveConfig,
 } from "@tashks/core/query";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -441,6 +442,35 @@ export const resolveGlobalCliOptions = (
 	};
 };
 
+const ParentGlobalOptionsTag = Context.GenericTag<GlobalCliOptionsInput>(
+	"@tashks/cli/ParentGlobalOptions",
+);
+
+export const mergeGlobalOptionsInput = (
+	child: GlobalCliOptionsInput,
+	parent: GlobalCliOptionsInput,
+): GlobalCliOptionsInput => ({
+	dataDir: Option.orElse(child.dataDir, () => parent.dataDir),
+	tasksFile: Option.orElse(child.tasksFile, () => parent.tasksFile),
+	worklogFile: Option.orElse(child.worklogFile, () => parent.worklogFile),
+	pretty: child.pretty || parent.pretty,
+});
+
+const resolveGlobalCliOptionsFromContext = (
+	options: GlobalCliOptionsInput,
+	env?: NodeJS.ProcessEnv,
+): Effect.Effect<GlobalCliOptions> =>
+	Effect.map(
+		Effect.serviceOption(ParentGlobalOptionsTag),
+		(parentOpts) => {
+			const merged = Option.match(parentOpts, {
+				onNone: () => options,
+				onSome: (p: GlobalCliOptionsInput) => mergeGlobalOptionsInput(options, p),
+			});
+			return resolveGlobalCliOptions(merged, env);
+		},
+	);
+
 const makeRepositoryLayer = (options: GlobalCliOptions) =>
 	ProseqlRepositoryLive({
 		tasksFile: options.tasksFile,
@@ -839,7 +869,7 @@ export const makeListCommand = <R, E>(execute: ListTasksExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -862,7 +892,7 @@ export const makeGetCommand = <R, E>(execute: GetTaskExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -972,7 +1002,7 @@ export const makeCreateCommand = <R, E>(execute: CreateTaskExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1082,7 +1112,7 @@ export const makeUpdateCommand = <R, E>(execute: UpdateTaskExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1105,7 +1135,7 @@ export const makeDeleteCommand = <R, E>(execute: DeleteTaskExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1129,7 +1159,7 @@ export const makeHighlightCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1155,7 +1185,7 @@ export const makeCompleteCommand = <R, E>(execute: CompleteTaskExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1178,7 +1208,7 @@ export const makeRecurrenceCheckCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1202,7 +1232,7 @@ export const makePerspectiveCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1225,7 +1255,7 @@ export const makePerspectivesCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1252,7 +1282,7 @@ export const makeWorkLogListCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1286,7 +1316,7 @@ export const makeWorkLogCreateCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1323,7 +1353,7 @@ export const makeWorkLogUpdateCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1348,7 +1378,7 @@ export const makeWorkLogDeleteCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1376,7 +1406,7 @@ export const makeMigrateCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1405,7 +1435,7 @@ export const makePromoteCommand = <R, E>(execute: PromoteExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1426,7 +1456,7 @@ export const makeAreasCommand = <R, E>(execute: AreasExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1447,7 +1477,7 @@ export const makeContextsCommand = <R, E>(execute: ContextsExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1470,7 +1500,7 @@ export const makeTemplateListCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1526,7 +1556,7 @@ export const makeTemplateCreateCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1586,7 +1616,7 @@ export const makeTemplateInstantiateCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1613,25 +1643,53 @@ export const makeTemplateInstantiateCommand = <R, E>(
 			}),
 	).pipe(Command.withDescription("Create a task from a template"));
 
-export const makeTemplateCommand = <R, E>(
+export const makeTemplateCommand = <R, E, PCtx>(
 	execute: TemplateExecute<R, E>,
 	executeList: TemplateListExecute<R, E>,
 	executeCreate: TemplateCreateExecute<R, E>,
 	executeInstantiate: TemplateInstantiateExecute<R, E>,
-) =>
-	Command.make(
+	tasksParent: Effect.Effect<GlobalCliOptionsInput, never, PCtx>,
+) => {
+	const templateParent = Command.make(
 		"template",
 		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
 		({ dataDir, tasksFile, worklogFile, pretty }) =>
-			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
-	).pipe(
+			Effect.gen(function* () {
+				const parentOpts = yield* tasksParent;
+				yield* execute(resolveGlobalCliOptions(
+					mergeGlobalOptionsInput({ dataDir, tasksFile, worklogFile, pretty }, parentOpts as GlobalCliOptionsInput),
+				));
+			}),
+	);
+
+	const wrapLeaf = <N extends string, R2, E2, A>(
+		sub: Command.Command<N, R2, E2, A>,
+	) =>
+		Command.transformHandler(sub, (effect) =>
+			Effect.gen(function* () {
+				const topOpts = yield* tasksParent;
+				const midOpts = yield* templateParent;
+				const merged = mergeGlobalOptionsInput(
+					midOpts as GlobalCliOptionsInput,
+					topOpts as GlobalCliOptionsInput,
+				);
+				return yield* Effect.provideService(
+					effect,
+					ParentGlobalOptionsTag,
+					merged,
+				);
+			}),
+		);
+
+	return templateParent.pipe(
 		Command.withDescription("Manage task templates"),
 		Command.withSubcommands([
-			makeTemplateListCommand(executeList),
-			makeTemplateCreateCommand(executeCreate),
-			makeTemplateInstantiateCommand(executeInstantiate),
+			wrapLeaf(makeTemplateListCommand(executeList)),
+			wrapLeaf(makeTemplateCreateCommand(executeCreate)),
+			wrapLeaf(makeTemplateInstantiateCommand(executeInstantiate)),
 		]),
 	);
+};
 
 export const makeUnblockCommand = <R, E>(execute: UnblockTaskExecute<R, E>) =>
 	Command.make(
@@ -1645,7 +1703,7 @@ export const makeUnblockCommand = <R, E>(execute: UnblockTaskExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1667,7 +1725,7 @@ export const makeChainCommand = <R, E>(execute: ChainExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1692,7 +1750,7 @@ export const makeNextCommand = <R, E>(execute: NextTaskExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1715,7 +1773,7 @@ export const makeDropCommand = <R, E>(execute: DropTaskExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1736,7 +1794,7 @@ export const makeTodayCommand = <R, E>(execute: TodayExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1760,7 +1818,7 @@ export const makeCommentsListCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1789,7 +1847,7 @@ export const makeCommentsAddCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1799,23 +1857,51 @@ export const makeCommentsAddCommand = <R, E>(
 			}),
 	).pipe(Command.withDescription("Add a comment to a task"));
 
-export const makeCommentsCommand = <R, E>(
+export const makeCommentsCommand = <R, E, PCtx>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: CommentsListExecute<R, E>,
 	executeAdd: CommentsAddExecute<R, E>,
-) =>
-	Command.make(
+	tasksParent: Effect.Effect<GlobalCliOptionsInput, never, PCtx>,
+) => {
+	const commentsParent = Command.make(
 		"comments",
 		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
 		({ dataDir, tasksFile, worklogFile, pretty }) =>
-			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
-	).pipe(
+			Effect.gen(function* () {
+				const parentOpts = yield* tasksParent;
+				yield* execute(resolveGlobalCliOptions(
+					mergeGlobalOptionsInput({ dataDir, tasksFile, worklogFile, pretty }, parentOpts as GlobalCliOptionsInput),
+				));
+			}),
+	);
+
+	const wrapLeaf = <N extends string, R2, E2, A>(
+		sub: Command.Command<N, R2, E2, A>,
+	) =>
+		Command.transformHandler(sub, (effect) =>
+			Effect.gen(function* () {
+				const topOpts = yield* tasksParent;
+				const midOpts = yield* commentsParent;
+				const merged = mergeGlobalOptionsInput(
+					midOpts as GlobalCliOptionsInput,
+					topOpts as GlobalCliOptionsInput,
+				);
+				return yield* Effect.provideService(
+					effect,
+					ParentGlobalOptionsTag,
+					merged,
+				);
+			}),
+		);
+
+	return commentsParent.pipe(
 		Command.withDescription("Manage task comments"),
 		Command.withSubcommands([
-			makeCommentsListCommand(executeList),
-			makeCommentsAddCommand(executeAdd),
+			wrapLeaf(makeCommentsListCommand(executeList)),
+			wrapLeaf(makeCommentsAddCommand(executeAdd)),
 		]),
 	);
+};
 
 export const makeDepAddCommand = <R, E>(execute: DepAddExecute<R, E>) =>
 	Command.make(
@@ -1830,7 +1916,7 @@ export const makeDepAddCommand = <R, E>(execute: DepAddExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1853,7 +1939,7 @@ export const makeDepRemoveCommand = <R, E>(execute: DepRemoveExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1875,7 +1961,7 @@ export const makeDepListCommand = <R, E>(execute: DepListExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1885,25 +1971,53 @@ export const makeDepListCommand = <R, E>(execute: DepListExecute<R, E>) =>
 			}),
 	).pipe(Command.withDescription("List dependencies for a task"));
 
-export const makeDepCommand = <R, E>(
+export const makeDepCommand = <R, E, PCtx>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeAdd: DepAddExecute<R, E>,
 	executeRemove: DepRemoveExecute<R, E>,
 	executeList: DepListExecute<R, E>,
-) =>
-	Command.make(
+	tasksParent: Effect.Effect<GlobalCliOptionsInput, never, PCtx>,
+) => {
+	const depParent = Command.make(
 		"dep",
 		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
 		({ dataDir, tasksFile, worklogFile, pretty }) =>
-			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
-	).pipe(
+			Effect.gen(function* () {
+				const parentOpts = yield* tasksParent;
+				yield* execute(resolveGlobalCliOptions(
+					mergeGlobalOptionsInput({ dataDir, tasksFile, worklogFile, pretty }, parentOpts as GlobalCliOptionsInput),
+				));
+			}),
+	);
+
+	const wrapLeaf = <N extends string, R2, E2, A>(
+		sub: Command.Command<N, R2, E2, A>,
+	) =>
+		Command.transformHandler(sub, (effect) =>
+			Effect.gen(function* () {
+				const topOpts = yield* tasksParent;
+				const midOpts = yield* depParent;
+				const merged = mergeGlobalOptionsInput(
+					midOpts as GlobalCliOptionsInput,
+					topOpts as GlobalCliOptionsInput,
+				);
+				return yield* Effect.provideService(
+					effect,
+					ParentGlobalOptionsTag,
+					merged,
+				);
+			}),
+		);
+
+	return depParent.pipe(
 		Command.withDescription("Manage task dependencies"),
 		Command.withSubcommands([
-			makeDepAddCommand(executeAdd),
-			makeDepRemoveCommand(executeRemove),
-			makeDepListCommand(executeList),
+			wrapLeaf(makeDepAddCommand(executeAdd)),
+			wrapLeaf(makeDepRemoveCommand(executeRemove)),
+			wrapLeaf(makeDepListCommand(executeList)),
 		]),
 	);
+};
 
 export const makeReadyCommand = <R, E>(execute: ReadyExecute<R, E>) =>
 	Command.make(
@@ -1939,7 +2053,7 @@ export const makeReadyCommand = <R, E>(execute: ReadyExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -1971,7 +2085,7 @@ export const makeBlockedCommand = <R, E>(execute: BlockedExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -2001,7 +2115,7 @@ export const makeSearchCommand = <R, E>(execute: SearchExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -2025,7 +2139,7 @@ export const makeStatusCommand = <R, E>(execute: StatusExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -2049,7 +2163,7 @@ export const makePrimeCommand = <R, E>(execute: PrimeExecute<R, E>) =>
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -2080,7 +2194,7 @@ export const makeProjectListCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -2105,7 +2219,7 @@ export const makeProjectGetCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -2145,7 +2259,7 @@ export const makeProjectCreateCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -2190,7 +2304,7 @@ export const makeProjectUpdateCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -2215,7 +2329,7 @@ export const makeProjectDeleteCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -2239,7 +2353,7 @@ export const makeProjectTasksCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -2270,7 +2384,7 @@ export const makeProjectSummaryCommand = <R, E>(
 		},
 		(options) =>
 			Effect.gen(function* () {
-				const globalOptions = resolveGlobalCliOptions({
+				const globalOptions = yield* resolveGlobalCliOptionsFromContext({
 					dataDir: options.dataDir,
 					tasksFile: options.tasksFile,
 					worklogFile: options.worklogFile,
@@ -2281,7 +2395,7 @@ export const makeProjectSummaryCommand = <R, E>(
 			}),
 	).pipe(Command.withDescription("Show project summary with task counts"));
 
-export const makeProjectCommand = <R, E>(
+export const makeProjectCommand = <R, E, PCtx>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
 	executeList: ListProjectsExecute<R, E>,
 	executeGet: GetProjectExecute<R, E>,
@@ -2290,46 +2404,102 @@ export const makeProjectCommand = <R, E>(
 	executeDelete: DeleteProjectExecute<R, E>,
 	executeTasks: ProjectTasksExecute<R, E>,
 	executeSummary: ProjectSummaryExecute<R, E>,
-) =>
-	Command.make(
+	tasksParent: Effect.Effect<GlobalCliOptionsInput, never, PCtx>,
+) => {
+	const projectParent = Command.make(
 		"project",
 		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
 		({ dataDir, tasksFile, worklogFile, pretty }) =>
-			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
-	).pipe(
-		Command.withDescription("Manage projects"),
-		Command.withSubcommands([
-			makeProjectListCommand(executeList),
-			makeProjectGetCommand(executeGet),
-			makeProjectCreateCommand(executeCreate),
-			makeProjectUpdateCommand(executeUpdate),
-			makeProjectDeleteCommand(executeDelete),
-			makeProjectTasksCommand(executeTasks),
-			makeProjectSummaryCommand(executeSummary),
-		]),
+			Effect.gen(function* () {
+				const parentOpts = yield* tasksParent;
+				yield* execute(resolveGlobalCliOptions(
+					mergeGlobalOptionsInput({ dataDir, tasksFile, worklogFile, pretty }, parentOpts as GlobalCliOptionsInput),
+				));
+			}),
 	);
 
-export const makeWorkLogCommand = <R, E>(
+	const wrapLeaf = <N extends string, R2, E2, A>(
+		sub: Command.Command<N, R2, E2, A>,
+	) =>
+		Command.transformHandler(sub, (effect) =>
+			Effect.gen(function* () {
+				const topOpts = yield* tasksParent;
+				const midOpts = yield* projectParent;
+				const merged = mergeGlobalOptionsInput(
+					midOpts as GlobalCliOptionsInput,
+					topOpts as GlobalCliOptionsInput,
+				);
+				return yield* Effect.provideService(
+					effect,
+					ParentGlobalOptionsTag,
+					merged,
+				);
+			}),
+		);
+
+	return projectParent.pipe(
+		Command.withDescription("Manage projects"),
+		Command.withSubcommands([
+			wrapLeaf(makeProjectListCommand(executeList)),
+			wrapLeaf(makeProjectGetCommand(executeGet)),
+			wrapLeaf(makeProjectCreateCommand(executeCreate)),
+			wrapLeaf(makeProjectUpdateCommand(executeUpdate)),
+			wrapLeaf(makeProjectDeleteCommand(executeDelete)),
+			wrapLeaf(makeProjectTasksCommand(executeTasks)),
+			wrapLeaf(makeProjectSummaryCommand(executeSummary)),
+		]),
+	);
+};
+
+export const makeWorkLogCommand = <R, E, PCtx>(
 	execute: WorkLogExecute<R, E>,
 	executeList: ListWorkLogExecute<R, E>,
 	executeCreate: CreateWorkLogExecute<R, E>,
 	executeUpdate: UpdateWorkLogExecute<R, E>,
 	executeDelete: DeleteWorkLogExecute<R, E>,
-) =>
-	Command.make(
+	tasksParent: Effect.Effect<GlobalCliOptionsInput, never, PCtx>,
+) => {
+	const worklogParent = Command.make(
 		"worklog",
 		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
 		({ dataDir, tasksFile, worklogFile, pretty }) =>
-			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
-	).pipe(
+			Effect.gen(function* () {
+				const parentOpts = yield* tasksParent;
+				yield* execute(resolveGlobalCliOptions(
+					mergeGlobalOptionsInput({ dataDir, tasksFile, worklogFile, pretty }, parentOpts as GlobalCliOptionsInput),
+				));
+			}),
+	);
+
+	const wrapLeaf = <N extends string, R2, E2, A>(
+		sub: Command.Command<N, R2, E2, A>,
+	) =>
+		Command.transformHandler(sub, (effect) =>
+			Effect.gen(function* () {
+				const topOpts = yield* tasksParent;
+				const midOpts = yield* worklogParent;
+				const merged = mergeGlobalOptionsInput(
+					midOpts as GlobalCliOptionsInput,
+					topOpts as GlobalCliOptionsInput,
+				);
+				return yield* Effect.provideService(
+					effect,
+					ParentGlobalOptionsTag,
+					merged,
+				);
+			}),
+		);
+
+	return worklogParent.pipe(
 		Command.withDescription("Manage work log entries"),
 		Command.withSubcommands([
-			makeWorkLogListCommand(executeList),
-			makeWorkLogCreateCommand(executeCreate),
-			makeWorkLogUpdateCommand(executeUpdate),
-			makeWorkLogDeleteCommand(executeDelete),
+			wrapLeaf(makeWorkLogListCommand(executeList)),
+			wrapLeaf(makeWorkLogCreateCommand(executeCreate)),
+			wrapLeaf(makeWorkLogUpdateCommand(executeUpdate)),
+			wrapLeaf(makeWorkLogDeleteCommand(executeDelete)),
 		]),
 	);
+};
 
 export const makeTasksCommand = <R, E>(
 	execute: (options: GlobalCliOptions) => Effect.Effect<void, E, R>,
@@ -2381,35 +2551,52 @@ export const makeTasksCommand = <R, E>(
 	executeSearch: SearchExecute<R, E>,
 	executeStatus: StatusExecute<R, E>,
 	executePrime: PrimeExecute<R, E>,
-) =>
-	Command.make(
+) => {
+	const parent = Command.make(
 		"tasks",
 		{ dataDir: dataDirOption, tasksFile: tasksFileOption, worklogFile: worklogFileOption, pretty: prettyOption },
 		({ dataDir, tasksFile, worklogFile, pretty }) =>
 			execute(resolveGlobalCliOptions({ dataDir, tasksFile, worklogFile, pretty })),
-	).pipe(
+	);
+
+	const wrapSub = <N extends string, R2, E2, A>(
+		sub: Command.Command<N, R2, E2, A>,
+	) =>
+		Command.transformHandler(sub, (effect) =>
+			Effect.gen(function* () {
+				const parentOpts = yield* parent;
+				return yield* Effect.provideService(
+					effect,
+					ParentGlobalOptionsTag,
+					parentOpts,
+				);
+			}),
+		);
+
+	return parent.pipe(
 		Command.withDescription(
 			"Manage tasks and work-log entries via proseql (YAML, JSON, TOML, prose, and more).",
 		),
 		Command.withSubcommands([
-			makeListCommand(executeList),
-			makeGetCommand(executeGet),
-			makeCreateCommand(executeCreate),
-			makeUpdateCommand(executeUpdate),
-			makeDeleteCommand(executeDelete),
-			makeHighlightCommand(executeHighlight),
-			makeCompleteCommand(executeComplete),
-			makeRecurrenceCheckCommand(executeRecurrenceCheck),
-			makePerspectiveCommand(executePerspective),
-			makePerspectivesCommand(executePerspectives),
+			wrapSub(makeListCommand(executeList)),
+			wrapSub(makeGetCommand(executeGet)),
+			wrapSub(makeCreateCommand(executeCreate)),
+			wrapSub(makeUpdateCommand(executeUpdate)),
+			wrapSub(makeDeleteCommand(executeDelete)),
+			wrapSub(makeHighlightCommand(executeHighlight)),
+			wrapSub(makeCompleteCommand(executeComplete)),
+			wrapSub(makeRecurrenceCheckCommand(executeRecurrenceCheck)),
+			wrapSub(makePerspectiveCommand(executePerspective)),
+			wrapSub(makePerspectivesCommand(executePerspectives)),
 			makeWorkLogCommand(
 				executeWorkLog,
 				executeWorkLogList,
 				executeWorkLogCreate,
 				executeWorkLogUpdate,
 				executeWorkLogDelete,
+				parent,
 			),
-			makeMigrateCommand(executeMigrate),
+			wrapSub(makeMigrateCommand(executeMigrate)),
 			makeProjectCommand(
 				executeProject,
 				executeProjectList,
@@ -2419,30 +2606,33 @@ export const makeTasksCommand = <R, E>(
 				executeProjectDelete,
 				executeProjectTasks,
 				executeProjectSummary,
+				parent,
 			),
-			makePromoteCommand(executePromote),
-			makeAreasCommand(executeAreas),
-			makeContextsCommand(executeContexts),
+			wrapSub(makePromoteCommand(executePromote)),
+			wrapSub(makeAreasCommand(executeAreas)),
+			wrapSub(makeContextsCommand(executeContexts)),
 			makeTemplateCommand(
 				executeTemplate,
 				executeTemplateList,
 				executeTemplateCreate,
 				executeTemplateInstantiate,
+				parent,
 			),
-			makeUnblockCommand(executeUnblock),
-			makeChainCommand(executeChain),
-			makeNextCommand(executeNext),
-			makeDropCommand(executeDrop),
-			makeTodayCommand(executeToday),
-			makeCommentsCommand(executeComments, executeCommentsList, executeCommentsAdd),
-			makeDepCommand(executeDep, executeDepAdd, executeDepRemove, executeDepList),
-			makeReadyCommand(executeReady),
-			makeBlockedCommand(executeBlocked),
-			makeSearchCommand(executeSearch),
-			makeStatusCommand(executeStatus),
-			makePrimeCommand(executePrime),
+			wrapSub(makeUnblockCommand(executeUnblock)),
+			wrapSub(makeChainCommand(executeChain)),
+			wrapSub(makeNextCommand(executeNext)),
+			wrapSub(makeDropCommand(executeDrop)),
+			wrapSub(makeTodayCommand(executeToday)),
+			makeCommentsCommand(executeComments, executeCommentsList, executeCommentsAdd, parent),
+			makeDepCommand(executeDep, executeDepAdd, executeDepRemove, executeDepList, parent),
+			wrapSub(makeReadyCommand(executeReady)),
+			wrapSub(makeBlockedCommand(executeBlocked)),
+			wrapSub(makeSearchCommand(executeSearch)),
+			wrapSub(makeStatusCommand(executeStatus)),
+			wrapSub(makePrimeCommand(executePrime)),
 		]),
 	);
+};
 
 const noopExecute = (_options: GlobalCliOptions): Effect.Effect<void> =>
 	Effect.void;
