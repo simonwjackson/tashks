@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.1 (2026-03-02)
+
+### Fixes
+- Propagate global options (--tasks-file, --data-dir, etc.) from parent to subcommands (1862428)
+
+
 ## v1.0.0 (2026-02-28)
 
 ### Features
