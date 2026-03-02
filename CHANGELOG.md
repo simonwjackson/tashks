@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.3 (2026-03-02)
+
+### Other
+- Add actions:write permission so release can trigger publish (1d6c200)
+
+
 ## v1.0.2 (2026-03-02)
 
 ### Other
